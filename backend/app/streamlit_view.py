@@ -18,26 +18,122 @@ MODULE_META = {
         "title": "财务压力二级页",
         "subtitle": "从盈利能力、负债压力和现金流表现观察企业推进混改的现实压力。",
         "weight": "30%",
+        "focus": "盈利、负债率、现金流",
     },
     "equity": {
         "label": "股权信用",
         "title": "股权信用二级页",
         "subtitle": "从股权集中度、质押情况、审计意见和债务逾期观察治理稳定性。",
         "weight": "25%",
+        "focus": "股权集中度、质押、审计与债务信用",
     },
     "region": {
         "label": "属地适配",
         "title": "属地适配二级页",
         "subtitle": "结合公司所在地区、国资属性和地方产业方向判断区域匹配程度。",
         "weight": "25%",
+        "focus": "所在地、地方财政与产业政策匹配",
     },
     "policy": {
         "label": "政策案例",
         "title": "政策案例二级页",
         "subtitle": "结合政策文本、已混改样本特征和入库规则观察政策信号强弱。",
         "weight": "20%",
+        "focus": "政策文本、样本特征与入库信号",
     },
 }
+
+
+def _short_name(company: dict) -> str:
+    return str(company.get("shortName") or company.get("short_name") or company.get("name") or "")
+
+
+def _score_value(value: object) -> float:
+    try:
+        return round(float(value or 0), 1)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def score_band(value: object) -> dict:
+    score = _score_value(value)
+    if score >= 80:
+        return {
+            "label": "优势项",
+            "tone": "strong",
+            "class": "band-strong",
+            "summary": "得分处于优势区间，可作为混改潜力判断的主要支撑。",
+        }
+    if score >= 70:
+        return {
+            "label": "支撑项",
+            "tone": "support",
+            "class": "band-support",
+            "summary": "得分处于支撑区间，对综合判断形成正向贡献。",
+        }
+    if score >= 60:
+        return {
+            "label": "观察项",
+            "tone": "watch",
+            "class": "band-watch",
+            "summary": "得分处于观察区间，需要结合其他证据继续判断。",
+        }
+    return {
+        "label": "风险项",
+        "tone": "risk",
+        "class": "band-risk",
+        "summary": "得分处于风险区间，是当前混改潜力判断中的短板。",
+    }
+
+
+def _module_scores(company: dict) -> list[dict]:
+    modules = company.get("modules", {})
+    return [
+        {
+            "key": key,
+            "label": label,
+            "weight": weight,
+            "score": _score_value(modules.get(key, 0)),
+        }
+        for key, label, weight in MODULE_LABELS
+    ]
+
+
+def _module_summary(label: str, score: float, band: dict, focus: str) -> str:
+    return f"{label}得分{score:.1f}，当前属于{band['label']}；重点依据包括{focus}。"
+
+
+def company_report_summary(company: dict) -> str:
+    name = _short_name(company) or "该公司"
+    total_score = _score_value(company.get("totalScore", company.get("score", 0)))
+    total_band = score_band(total_score)
+    modules = _module_scores(company)
+    if not modules:
+        return f"{name}综合得分{total_score:.1f}，处于{total_band['label']}区间；暂无可用于拆解的模块数据。"
+
+    best = max(modules, key=lambda item: item["score"])
+    weakest = min(modules, key=lambda item: item["score"])
+    return (
+        f"{name}综合得分{total_score:.1f}，处于{total_band['label']}区间；"
+        f"{best['label']}贡献最强，{weakest['label']}仍需重点观察。"
+    )
+
+
+def module_cards(company: dict) -> list[dict]:
+    cards = []
+    for item in _module_scores(company):
+        meta = MODULE_META[item["key"]]
+        band = score_band(item["score"])
+        cards.append(
+            {
+                **item,
+                "band": band,
+                "band_label": band["label"],
+                "band_class": band["class"],
+                "summary": _module_summary(item["label"], item["score"], band, meta["focus"]),
+            }
+        )
+    return cards
 
 
 def company_table_rows(companies: Iterable[dict]) -> list[dict]:
@@ -94,13 +190,19 @@ def module_detail(company: dict, module_key: str) -> dict:
 
     meta = MODULE_META[module_key]
     modules = company.get("modules", {})
+    current_score = _score_value(modules.get(module_key, 0))
+    band = score_band(current_score)
     return {
         "key": module_key,
         "label": meta["label"],
         "title": meta["title"],
         "subtitle": meta["subtitle"],
         "weight": meta["weight"],
-        "score": round(float(modules.get(module_key, 0)), 1),
+        "score": current_score,
+        "band": band,
+        "band_label": band["label"],
+        "band_class": band["class"],
+        "report_summary": _module_summary(meta["label"], current_score, band, meta["focus"]),
         "rows": _module_rows(company, module_key),
         "notes": _module_notes(company, module_key),
     }

@@ -1,13 +1,16 @@
 import pytest
 
 from backend.app.streamlit_view import (
+    company_report_summary,
     company_table_rows,
     module_detail,
+    module_cards,
     module_score_rows,
     pop_route_history,
     push_route_history,
     reason_items,
     route_snapshot,
+    score_band,
 )
 
 
@@ -64,6 +67,33 @@ def test_module_score_rows_include_labels_weights_and_scores():
     assert rows[-1] == {"模块": "政策案例", "权重": "20%", "得分": 86.0}
 
 
+def test_score_band_maps_scores_to_report_statuses():
+    assert score_band(85)["label"] == "优势项"
+    assert score_band(75)["label"] == "支撑项"
+    assert score_band(65)["label"] == "观察项"
+    assert score_band(55)["label"] == "风险项"
+
+
+def test_company_report_summary_names_best_and_weakest_modules():
+    summary = company_report_summary(sample_company())
+
+    assert "甲能源综合得分82.4" in summary
+    assert "优势项" in summary
+    assert "属地适配贡献最强" in summary
+    assert "财务压力仍需重点观察" in summary
+
+
+def test_module_cards_include_status_and_explanatory_copy():
+    cards = module_cards(sample_company())
+
+    assert len(cards) == 4
+    assert cards[0]["key"] == "finance"
+    assert cards[0]["band_label"] == "支撑项"
+    assert "盈利、负债率、现金流" in cards[0]["summary"]
+    assert cards[2]["key"] == "region"
+    assert cards[2]["band_label"] == "优势项"
+
+
 def test_reason_items_returns_empty_fallback():
     assert reason_items([], "暂无风险提示") == ["暂无风险提示"]
 
@@ -74,6 +104,9 @@ def test_module_detail_builds_finance_secondary_page_model():
     assert detail["title"] == "财务压力二级页"
     assert detail["score"] == 72.0
     assert detail["weight"] == "30%"
+    assert detail["band_label"] == "支撑项"
+    assert "财务压力得分72.0" in detail["report_summary"]
+    assert "盈利、负债率、现金流" in detail["report_summary"]
     assert {"指标": "资产负债率", "数值": "74.5%"} in detail["rows"]
     assert detail["notes"] == ["资产负债率偏高"]
 

@@ -16,12 +16,15 @@ from backend.app.services import (
 from backend.app.streamlit_view import (
     MODULE_LABELS,
     MODULE_META,
+    company_report_summary,
     company_table_rows,
     module_detail,
+    module_cards,
     reason_items,
     pop_route_history,
     push_route_history,
     route_snapshot,
+    score_band,
 )
 
 
@@ -128,6 +131,19 @@ def score(company: dict) -> float:
 
 def short_name(company: dict) -> str:
     return str(company.get("shortName") or company.get("short_name") or company.get("name") or "")
+
+
+def is_missing_value(value: Any) -> bool:
+    text = str(value if value is not None else "").strip()
+    return text == "" or text in {"待补充", "None", "nan", "NaN"}
+
+
+def report_value(value: Any, fallback: str = "暂未入库") -> str:
+    return fallback if is_missing_value(value) else str(value)
+
+
+def report_value_class(value: Any) -> str:
+    return "metric-value muted-value" if is_missing_value(value) else "metric-value"
 
 
 def inject_css() -> None:
@@ -352,17 +368,118 @@ def inject_css() -> None:
           margin-top: 14px;
           font-size: 15px;
         }
+        .report-hero {
+          margin: 0 -2rem 42px -2rem;
+          padding: 42px 2rem 48px 2rem;
+          background:
+            linear-gradient(90deg, rgba(16, 24, 32, 0.04) 1px, transparent 1px),
+            linear-gradient(180deg, rgba(16, 24, 32, 0.035) 1px, transparent 1px),
+            linear-gradient(135deg, #fff9ed 0%, #f7fbf7 52%, #edf7f9 100%);
+          background-size: 28px 28px, 28px 28px, auto;
+          border-bottom: 1px solid rgba(16, 24, 32, 0.10);
+        }
+        .report-hero-grid {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) 168px;
+          gap: 30px;
+          align-items: start;
+        }
+        .report-label-row {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          margin: 16px 0 18px 0;
+        }
+        .report-chip, .status-badge {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          border: 1px solid rgba(16, 24, 32, 0.12);
+          border-radius: 999px;
+          background: rgba(255, 255, 255, 0.76);
+          padding: 5px 10px;
+          color: #344054;
+          font-size: 12px;
+          font-weight: 700;
+        }
+        .status-badge {
+          border-color: transparent;
+        }
+        .band-strong {
+          color: #0f766e;
+          background: #dff8ef;
+        }
+        .band-support {
+          color: #b54708;
+          background: #fff1d6;
+        }
+        .band-watch {
+          color: #475467;
+          background: #edf1f5;
+        }
+        .band-risk {
+          color: #b42318;
+          background: #ffe4e0;
+        }
+        .report-summary {
+          max-width: 760px;
+          color: #2f3940;
+          font-size: 17px;
+          line-height: 1.8;
+          padding: 18px 20px;
+          border-left: 4px solid var(--accent);
+          background: rgba(255, 255, 255, 0.72);
+          border-radius: 0 16px 16px 0;
+        }
+        .report-stats {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(120px, 1fr));
+          gap: 12px;
+          margin-top: 22px;
+          max-width: 720px;
+        }
+        .report-stat {
+          border-top: 1px solid rgba(16, 24, 32, 0.15);
+          padding-top: 12px;
+        }
+        .score-panel {
+          display: grid;
+          justify-items: center;
+          gap: 10px;
+          padding: 18px 14px;
+          border: 1px solid rgba(16, 24, 32, 0.12);
+          background: rgba(255, 255, 255, 0.72);
+          border-radius: 18px;
+          box-shadow: 0 18px 40px rgba(16, 24, 32, 0.08);
+        }
         .module-card {
           border: 1px solid var(--line);
           background: rgba(255, 255, 255, 0.88);
           border-radius: 18px;
-          padding: 22px;
-          min-height: 150px;
-          box-shadow: var(--shadow);
+          padding: 20px;
+          min-height: 214px;
+          box-shadow: 0 14px 34px rgba(16, 24, 32, 0.08);
+          display: flex;
+          flex-direction: column;
+          justify-content: space-between;
         }
         .module-title {
           font-family: "Noto Serif SC", serif;
-          font-size: 20px;
+          font-size: 19px;
+          margin-bottom: 8px;
+        }
+        .module-card-head {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          gap: 10px;
+        }
+        .module-summary {
+          color: #475467;
+          font-size: 12px;
+          line-height: 1.7;
+          margin-top: 12px;
+          min-height: 62px;
         }
         .bar {
           height: 8px;
@@ -401,6 +518,50 @@ def inject_css() -> None:
           background: var(--accent);
           font-size: 12px;
         }
+        .evidence-grid {
+          display: grid;
+          grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
+          gap: 24px;
+          align-items: start;
+        }
+        .metric-row {
+          display: flex;
+          justify-content: space-between;
+          gap: 18px;
+          border-top: 1px solid var(--line);
+          padding: 13px 0;
+          color: #2f3940;
+        }
+        .metric-value {
+          font-weight: 800;
+          text-align: right;
+          color: #101820;
+        }
+        .muted-value {
+          color: #98a2b3;
+          font-weight: 700;
+        }
+        .module-hero {
+          margin: 0 -2rem 36px -2rem;
+          padding: 40px 2rem 44px 2rem;
+          background: linear-gradient(135deg, #fffaf0 0%, #f7fbf8 58%, #eef8fa 100%);
+          border-bottom: 1px solid rgba(16, 24, 32, 0.10);
+        }
+        .module-hero-grid {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) 154px;
+          gap: 28px;
+          align-items: start;
+        }
+        .module-detail-grid {
+          display: grid;
+          grid-template-columns: minmax(0, 1.15fr) minmax(310px, 0.85fr);
+          gap: 24px;
+          align-items: start;
+        }
+        .jump-row {
+          margin-top: 10px;
+        }
         .method-box {
           border-left: 4px solid var(--accent);
           padding: 18px 22px;
@@ -426,7 +587,7 @@ def inject_css() -> None:
           min-height: 48px;
         }
         @media (max-width: 760px) {
-          .hero, .detail-hero, .topbar {
+          .hero, .detail-hero, .report-hero, .module-hero, .topbar {
             margin-left: -1rem;
             margin-right: -1rem;
             padding-left: 1rem;
@@ -434,6 +595,12 @@ def inject_css() -> None:
           }
           .feature-card {
             min-height: 300px;
+          }
+          .report-hero-grid, .module-hero-grid, .evidence-grid, .module-detail-grid {
+            grid-template-columns: 1fr;
+          }
+          .report-stats {
+            grid-template-columns: 1fr;
           }
         }
         </style>
@@ -762,24 +929,35 @@ def render_company_page() -> None:
 
 
 def render_company_hero(company: dict) -> None:
+    total_score = score(company)
+    band = score_band(total_score)
+    summary = company_report_summary(company)
     st.markdown(
         f"""
-        <section class="detail-hero">
+        <section class="report-hero">
           <div class="breadcrumb">首页 / {h(company.get('province'))} / {h(company.get('code'))}</div>
-          <div style="display:flex;justify-content:space-between;gap:28px;align-items:flex-start;">
+          <div class="report-hero-grid">
             <div>
-              <div class="kicker" style="color:var(--accent);">{h(company.get('industry'))} · {h(company.get('stateAttribute'))}</div>
+              <div class="kicker" style="color:var(--accent);">Company Reform Portrait</div>
               <div class="detail-name">{h(short_name(company))}</div>
               <div class="detail-meta">{h(company.get('name'))} · {h(company.get('code'))} · 实际控制人：{h(company.get('controller'))}</div>
-              <div style="display:flex;gap:36px;margin-top:28px;flex-wrap:wrap;">
-                <div><div class="meta">全国排名</div><div class="stat-value">No. {h(company.get('national_rank', '-'))}</div></div>
-                <div><div class="meta">省内排名</div><div class="stat-value">No. {h(company.get('province_rank', '-'))}</div></div>
-                <div><div class="meta">所属省份</div><div class="stat-value">{h(company.get('province'))}</div></div>
+              <div class="report-label-row">
+                <span class="report-chip">{h(report_value(company.get('province')))}</span>
+                <span class="report-chip">{h(report_value(company.get('industry')))}</span>
+                <span class="report-chip">{h(report_value(company.get('stateAttribute')))}</span>
+                <span class="status-badge {h(band['class'])}">{h(band['label'])}</span>
+              </div>
+              <div class="report-summary">{h(summary)}</div>
+              <div class="report-stats">
+                <div class="report-stat"><div class="meta">全国排名</div><div class="stat-value">No. {h(company.get('national_rank', '-'))}</div></div>
+                <div class="report-stat"><div class="meta">省内排名</div><div class="stat-value">No. {h(company.get('province_rank', '-'))}</div></div>
+                <div class="report-stat"><div class="meta">所在地</div><div class="stat-value">{h(report_value(company.get('city'), company.get('province') or '暂未入库'))}</div></div>
               </div>
             </div>
-            <div style="text-align:center;">
+            <div class="score-panel">
               <div class="meta">混改潜力总分</div>
-              <div class="score-pill">{score(company):.1f}</div>
+              <div class="score-pill">{total_score:.1f}</div>
+              <span class="status-badge {h(band['class'])}">{h(band['label'])}</span>
               <div class="meta" style="margin-top:8px;">满分 100 分</div>
             </div>
           </div>
@@ -790,38 +968,50 @@ def render_company_hero(company: dict) -> None:
 
 
 def render_module_cards(company: dict) -> None:
-    st.markdown('<div class="section-kicker">Interactive Modules</div>', unsafe_allow_html=True)
-    st.markdown('<div class="section-title">四大模块得分</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-kicker">Diagnostic Modules</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">四大模块诊断</div>', unsafe_allow_html=True)
     cols = st.columns(4)
-    for col, (key, label, weight) in zip(cols, MODULE_LABELS):
-        value = float(company.get("modules", {}).get(key, 0) or 0)
+    for col, card in zip(cols, module_cards(company)):
+        value = float(card["score"])
         with col:
             st.markdown(
                 f"""
                 <div class="module-card">
-                  <div class="module-title">{h(label)}</div>
-                  <div class="meta">权重 {h(weight)}</div>
-                  <div style="display:flex;justify-content:space-between;align-items:end;margin-top:16px;">
-                    <div class="small-score">{value:.1f}</div>
-                    <div class="meta">/ 100</div>
+                  <div>
+                    <div class="module-card-head">
+                      <div>
+                        <div class="module-title">{h(card['label'])}</div>
+                        <div class="meta">权重 {h(card['weight'])}</div>
+                      </div>
+                      <span class="status-badge {h(card['band_class'])}">{h(card['band_label'])}</span>
+                    </div>
+                    <div class="module-summary">{h(card['summary'])}</div>
                   </div>
-                  <div class="bar"><span style="width:{max(0, min(100, value))}%;"></span></div>
+                  <div>
+                    <div style="display:flex;justify-content:space-between;align-items:end;margin-top:16px;">
+                      <div class="small-score">{value:.1f}</div>
+                      <div class="meta">/ 100</div>
+                    </div>
+                    <div class="bar"><span style="width:{max(0, min(100, value))}%;"></span></div>
+                  </div>
                 </div>
                 """,
                 unsafe_allow_html=True,
             )
-            if st.button(f"进入{label}二级页", key=f"module-{key}", use_container_width=True):
+            if st.button(f"进入{card['label']}二级页", key=f"module-{card['key']}", use_container_width=True):
                 navigate(
                     "module",
                     selected_company_code=company["code"],
-                    selected_module=key,
+                    selected_module=card["key"],
                 )
 
 
 def render_company_evidence(company: dict) -> None:
+    st.markdown('<div class="section-kicker">Evidence Review</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">结论依据与风险提示</div>', unsafe_allow_html=True)
     left, right = st.columns([1.2, 1], gap="large")
     with left:
-        st.markdown('<div class="detail-card"><h3>关键加分原因</h3>', unsafe_allow_html=True)
+        st.markdown('<div class="detail-card"><h3>关键加分依据</h3>', unsafe_allow_html=True)
         for item in reason_items(company.get("highlights"), "暂无积极信号"):
             st.markdown(
                 f'<div class="note-item"><span class="note-dot">+</span>{h(item)}</div>',
@@ -845,23 +1035,35 @@ def render_company_evidence(company: dict) -> None:
 
 
 def render_metric_card(title: str, payload: dict) -> None:
+    def money_value(key: str) -> tuple[str, Any]:
+        raw = payload.get(key)
+        if is_missing_value(raw):
+            return "暂未入库", raw
+        return f"{float(raw):.2f} 亿元", raw
+
+    def percent_value(key: str) -> tuple[str, Any]:
+        raw = payload.get(key)
+        if is_missing_value(raw):
+            return "暂未入库", raw
+        return f"{raw}%", raw
+
     if title == "财务证据":
         rows = [
-            ("营业收入", f"{float(payload.get('revenue', 0)):.2f} 亿元"),
-            ("归母净利润", f"{float(payload.get('netProfit', 0)):.2f} 亿元"),
-            ("资产负债率", f"{payload.get('assetLiabilityRatio', 0)}%"),
-            ("ROE", f"{payload.get('roe', 0)}%"),
+            ("营业收入", *money_value("revenue")),
+            ("归母净利润", *money_value("netProfit")),
+            ("资产负债率", *percent_value("assetLiabilityRatio")),
+            ("ROE", *percent_value("roe")),
         ]
     else:
         rows = [
-            ("第一大股东持股", f"{payload.get('topShareholderRatio', 0)}%"),
-            ("股权质押率", f"{payload.get('pledgeRatio', 0)}%"),
-            ("审计意见", payload.get("auditOpinion", "")),
-            ("债务逾期", payload.get("overdueDebt", "")),
+            ("第一大股东持股", *percent_value("topShareholderRatio")),
+            ("股权质押率", *percent_value("pledgeRatio")),
+            ("审计意见", report_value(payload.get("auditOpinion", "")), payload.get("auditOpinion", "")),
+            ("债务逾期", report_value(payload.get("overdueDebt", "")), payload.get("overdueDebt", "")),
         ]
     body = "".join(
-        f'<div class="note-item"><span class="meta">{h(label)}</span><span style="float:right;font-weight:700;">{h(value)}</span></div>'
-        for label, value in rows
+        f'<div class="metric-row"><span class="meta">{h(label)}</span><span class="{report_value_class(raw)}">{h(value)}</span></div>'
+        for label, value, raw in rows
     )
     st.markdown(f'<div class="detail-card"><h3>{h(title)}</h3>{body}</div>', unsafe_allow_html=True)
 
@@ -878,17 +1080,24 @@ def render_module_page() -> None:
 
     st.markdown(
         f"""
-        <section class="detail-hero">
+        <section class="module-hero">
           <div class="breadcrumb">公司详情 / {h(short_name(company))} / {h(detail['label'])}</div>
-          <div style="display:flex;justify-content:space-between;gap:28px;align-items:flex-start;">
+          <div class="module-hero-grid">
             <div>
-              <div class="kicker" style="color:var(--accent);">Secondary Module Page</div>
+              <div class="kicker" style="color:var(--accent);">Module Evidence Page</div>
               <div class="detail-name">{h(detail['title'])}</div>
               <div class="detail-meta">{h(detail['subtitle'])}</div>
+              <div class="report-label-row">
+                <span class="report-chip">{h(short_name(company))}</span>
+                <span class="report-chip">权重 {h(detail['weight'])}</span>
+                <span class="status-badge {h(detail['band_class'])}">{h(detail['band_label'])}</span>
+              </div>
+              <div class="report-summary">{h(detail['report_summary'])}</div>
             </div>
-            <div style="text-align:center;">
+            <div class="score-panel">
               <div class="meta">模块得分 · 权重 {h(detail['weight'])}</div>
               <div class="score-pill">{float(detail['score']):.1f}</div>
+              <span class="status-badge {h(detail['band_class'])}">{h(detail['band_label'])}</span>
             </div>
           </div>
         </section>
@@ -898,16 +1107,16 @@ def render_module_page() -> None:
 
     left, right = st.columns([1.2, 1], gap="large")
     with left:
-        st.markdown('<div class="detail-card"><h3>指标证据</h3>', unsafe_allow_html=True)
+        st.markdown('<div class="detail-card"><h3>指标证据表</h3>', unsafe_allow_html=True)
         st.dataframe(detail["rows"], use_container_width=True, hide_index=True)
         st.markdown("</div>", unsafe_allow_html=True)
     with right:
-        st.markdown('<div class="detail-card"><h3>关联说明</h3>', unsafe_allow_html=True)
+        st.markdown('<div class="detail-card"><h3>关联说明与信号</h3>', unsafe_allow_html=True)
         for item in detail["notes"]:
             st.markdown(f'<div class="note-item"><span class="note-dot">i</span>{h(item)}</div>', unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
-    st.markdown('<div class="section-kicker">Jump To</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-kicker">Module Switch</div>', unsafe_allow_html=True)
     cols = st.columns(5)
     with cols[0]:
         if st.button("返回公司详情", key="module-back", use_container_width=True):
