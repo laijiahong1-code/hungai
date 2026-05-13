@@ -1,0 +1,102 @@
+from backend.app import services
+
+
+def sample_record(stock_code="600001", score_seed=80):
+    return {
+        "stock_code": stock_code,
+        "name": "甲能源集团",
+        "short_name": "甲能源",
+        "aliases": ["甲能源A"],
+        "province": "江西省",
+        "city": "南昌市",
+        "industry": "能源",
+        "controller": "地方国资委",
+        "ownership": "国有控股",
+        "is_st": False,
+        "is_financial": False,
+        "financials": {
+            "asset_liability_ratio": score_seed,
+            "roe": 3,
+            "cash_flow": 2,
+            "net_profit": 1,
+        },
+        "equity": {
+            "top_shareholder_ratio": 42,
+            "pledge_ratio": 10,
+            "audit_opinion": "标准无保留意见",
+            "overdue_debt": "无逾期",
+        },
+        "policy": {
+            "regional_fit": 75,
+            "policy_signal": 70,
+            "positive_reasons": ["符合地方产业方向"],
+            "risk_reasons": ["负债率偏高"],
+        },
+    }
+
+
+def test_build_company_score_documents_are_public_and_searchable():
+    docs = services.build_company_score_documents([sample_record()])
+
+    assert docs[0]["stock_code"] == "600001"
+    assert docs[0]["score"] > 0
+    assert docs[0]["module_scores"].keys() == {"financial", "equity", "regional", "policy"}
+    assert "甲能源A" in docs[0]["_search_text"]
+
+
+def test_build_province_score_documents_group_companies_by_province():
+    score_docs = services.build_company_score_documents(
+        [
+            sample_record("600001", score_seed=80),
+            sample_record("600002", score_seed=30),
+        ]
+    )
+
+    province_docs = services.build_province_score_documents(score_docs)
+
+    assert province_docs[0]["province"] == "江西省"
+    assert [company["stock_code"] for company in province_docs[0]["companies"]] == [
+        company["stock_code"]
+        for company in sorted(score_docs, key=lambda item: (-item["score"], item["stock_code"]))
+    ]
+    assert "financials" not in province_docs[0]["companies"][0]
+    assert {"code", "shortName", "name", "industry", "stateAttribute", "totalScore"} <= set(
+        province_docs[0]["companies"][0]
+    )
+
+
+def test_top_companies_can_use_materialized_mongo_collection(monkeypatch):
+    docs = services.build_company_score_documents(
+        [
+            sample_record("600001", score_seed=80),
+            sample_record("600002", score_seed=30),
+        ]
+    )
+
+    class FakeDatabase:
+        def has_collection(self, collection):
+            return collection == "company_scores"
+
+        def find_query(self, collection, query=None, sort=None, limit=0, projection=None):
+            assert collection == "company_scores"
+            result = list(docs)
+            result.sort(key=lambda item: (-item["score"], item["stock_code"]))
+            return result[:limit] if limit else result
+
+        def count_documents(self, collection, query=None):
+            return len(docs)
+
+        def distinct(self, collection, key, query=None):
+            return sorted({doc[key] for doc in docs})
+
+    monkeypatch.setattr(services, "default_database", lambda: FakeDatabase())
+    monkeypatch.setattr(
+        services,
+        "load_company_records",
+        lambda: (_ for _ in ()).throw(AssertionError("should not full-load records")),
+    )
+
+    results = services.get_top_companies(limit=1)
+
+    assert len(results) == 1
+    assert results[0]["stock_code"] in {"600001", "600002"}

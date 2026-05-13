@@ -1,0 +1,43 @@
+.env
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.streamlit/secrets.toml
+
+# Runtime logs
+*.log
+
+# Local/generated databases and raw source data
+backend/*
+!backend/__init__.py
+!backend/app/
+!backend/app/**
+backend/app/__pycache__/
+backend/database/
+backend/*.csv
+backend/*.xlsx
+backend/*.xls
+backend/*.md
+backend/**/*.csv
+backend/**/*.xlsx
+backend/**/*.xls
+backend/**/*.md
+backend/**/*.pdf
+backend/**/*.zip
+backend/**/*.txt
+中国城市统计年鉴2024（excel）/
+中国统计年鉴2025（excel）/
+
+# React backup/build artifacts
+china-reform-score-main/
+china-reform-score-main/china-reform-score-main/node_modules/
+china-reform-score-main/china-reform-score-main/dist/
+frontend/
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
