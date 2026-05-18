@@ -152,6 +152,18 @@ def test_financial_metric_card_rows_use_roe_not_roi():
     assert all(row[0] != "ROI" for row in rows)
 
 
+def test_data_source_label_uses_streamlit_secret_mongodb_uri(monkeypatch):
+    monkeypatch.delenv("MONGODB_URI", raising=False)
+    monkeypatch.setattr(
+        streamlit_app,
+        "get_setting",
+        lambda name, default="": "mongodb+srv://secret" if name == "MONGODB_URI" else default,
+        raising=False,
+    )
+
+    assert streamlit_app.data_source_label() == "MongoDB 云端"
+
+
 def test_module_detail_builds_equity_audit_rows():
     detail = module_detail(sample_company(), "equity")
 

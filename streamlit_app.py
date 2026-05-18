@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import html
-import os
 from typing import Any
 
 import streamlit as st
 
+from backend.app.data import get_setting
 from backend.app.services import (
     get_all_provinces,
     get_company_detail,
@@ -675,7 +675,7 @@ def inject_css() -> None:
 
 
 def render_top_bar() -> None:
-    data_source = "MongoDB 云端" if os.environ.get("MONGODB_URI") else "本地备份"
+    data_source = data_source_label()
     st.markdown(
         f"""
         <div class="topbar">
@@ -693,13 +693,17 @@ def render_top_bar() -> None:
     )
 
 
+def data_source_label() -> str:
+    return "MongoDB 云端" if get_setting("MONGODB_URI") else "本地备份"
+
+
 def render_navigation_controls() -> None:
     labels = navigation_control_labels(st.session_state.get("page", "home"))
     if not labels:
         return
     cols = st.columns([1, 7])
     with cols[0]:
-        if st.button(labels[0], key="global-back", use_container_width=True):
+        if st.button(labels[0], key="global-back", width="stretch"):
             go_back()
 
 
@@ -730,13 +734,13 @@ def render_sidebar() -> None:
         ("方法论", "method"),
     ]
     for label, page in nav_items:
-        if st.sidebar.button(label, key=f"nav-{page}", use_container_width=True):
+        if st.sidebar.button(label, key=f"nav-{page}", width="stretch"):
             if sidebar_navigation_clears_history(page):
                 go_home()
             else:
                 navigate(page)
     st.sidebar.divider()
-    if st.sidebar.button("刷新缓存", use_container_width=True):
+    if st.sidebar.button("刷新缓存", width="stretch"):
         st.cache_data.clear()
         st.rerun()
 
@@ -768,7 +772,7 @@ def render_home() -> None:
             key="home_search",
         )
     with button_col:
-        if st.button("搜索", key="home_search_button", use_container_width=True):
+        if st.button("搜索", key="home_search_button", width="stretch"):
             route_query(query)
 
     render_hot_provinces(provinces[:10])
@@ -802,7 +806,7 @@ def render_home() -> None:
     left, right = st.columns([1.05, 1.6], gap="large")
     with left:
         st.markdown(featured_card_html(featured), unsafe_allow_html=True)
-        if st.button("查看第一名公司详情", key="featured-detail", use_container_width=True):
+        if st.button("查看第一名公司详情", key="featured-detail", width="stretch"):
             navigate("company", selected_company_code=featured["code"])
     with right:
         for row_start in range(1, len(top_companies), 2):
@@ -817,7 +821,7 @@ def render_home() -> None:
                     if st.button(
                         f"进入 {short_name(company)}",
                         key=f"top-company-{company['code']}",
-                        use_container_width=True,
+                        width="stretch",
                     ):
                         navigate("company", selected_company_code=company["code"])
 
@@ -838,7 +842,7 @@ def render_province_buttons(provinces: list[str], prefix: str = "province") -> N
         cols = st.columns(6)
         for index, province in enumerate(provinces[row_start : row_start + 6]):
             with cols[index]:
-                if st.button(province, key=f"{prefix}-{province}", use_container_width=True):
+                if st.button(province, key=f"{prefix}-{province}", width="stretch"):
                     navigate("province", selected_province=province)
 
 
@@ -920,7 +924,7 @@ def render_search_page() -> None:
         if st.button("进入公司详情", key="search-company-link"):
             navigate("company", selected_company_code=company["code"])
     elif result["type"] == "candidates":
-        st.dataframe(company_table_rows(result["companies"]), use_container_width=True, hide_index=True)
+        st.dataframe(company_table_rows(result["companies"]), width="stretch", hide_index=True)
         for company in result["companies"]:
             if st.button(
                 f"{short_name(company)} · {company.get('code')}",
@@ -950,7 +954,7 @@ def render_province_page() -> None:
         companies = cached_province_companies(province)
 
     st.metric("入池公司数量", len(companies))
-    st.dataframe(company_table_rows(companies), use_container_width=True, hide_index=True)
+    st.dataframe(company_table_rows(companies), width="stretch", hide_index=True)
     if companies:
         selected_company = st.selectbox(
             "选择公司进入详情",
@@ -1044,7 +1048,7 @@ def render_module_cards(company: dict) -> None:
                 """,
                 unsafe_allow_html=True,
             )
-            if st.button(f"进入{card['label']}二级页", key=f"module-{card['key']}", use_container_width=True):
+            if st.button(f"进入{card['label']}二级页", key=f"module-{card['key']}", width="stretch"):
                 navigate(
                     "module",
                     selected_company_code=company["code"],
@@ -1129,7 +1133,7 @@ def render_module_page() -> None:
     left, right = st.columns([1.2, 1], gap="large")
     with left:
         st.markdown('<div class="detail-card"><h3>指标证据表</h3>', unsafe_allow_html=True)
-        st.dataframe(detail["rows"], use_container_width=True, hide_index=True)
+        st.dataframe(detail["rows"], width="stretch", hide_index=True)
         st.markdown("</div>", unsafe_allow_html=True)
     with right:
         st.markdown('<div class="detail-card"><h3>关联说明与信号</h3>', unsafe_allow_html=True)
@@ -1140,11 +1144,11 @@ def render_module_page() -> None:
     st.markdown('<div class="section-kicker">Module Switch</div>', unsafe_allow_html=True)
     cols = st.columns(5)
     with cols[0]:
-        if st.button("返回公司详情", key="module-back", use_container_width=True):
+        if st.button("返回公司详情", key="module-back", width="stretch"):
             navigate("company", remember=False, selected_company_code=code)
     for index, (key, label, _) in enumerate(MODULE_LABELS, start=1):
         with cols[index]:
-            if st.button(label, key=f"jump-module-{key}", use_container_width=True):
+            if st.button(label, key=f"jump-module-{key}", width="stretch"):
                 navigate("module", selected_company_code=code, selected_module=key)
 
 
