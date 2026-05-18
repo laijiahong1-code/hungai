@@ -1,5 +1,6 @@
 import pytest
 
+import streamlit_app
 from backend.app.streamlit_view import (
     company_report_summary,
     company_table_rows,
@@ -182,3 +183,56 @@ def test_route_snapshot_keeps_only_navigation_keys():
         "selected_province": "江西省",
         "selected_module": "policy",
     }
+
+
+def test_navigation_control_labels_only_show_single_back_button_off_home():
+    helper = getattr(streamlit_app, "navigation_control_labels", None)
+
+    assert helper is not None
+    assert helper("home") == []
+    assert helper("company") == ["返回"]
+    assert "返回上一页" not in helper("company")
+    assert "回到首页" not in helper("company")
+
+
+def test_back_navigation_resolves_stack_and_empty_history_fallback():
+    helper = getattr(streamlit_app, "resolve_back_navigation", None)
+    home = {"page": "home", "selected_company_code": "", "selected_province": "", "selected_module": "finance"}
+    province = {"page": "province", "selected_company_code": "", "selected_province": "江西省", "selected_module": "finance"}
+    company = {
+        "page": "company",
+        "selected_company_code": "600001",
+        "selected_province": "江西省",
+        "selected_module": "finance",
+    }
+    module = {**company, "page": "module", "selected_module": "equity"}
+
+    assert helper is not None
+    previous, remaining = helper(module, [home, province, company])
+    assert previous == company
+    assert remaining == [home, province]
+
+    previous, remaining = helper(company, [home])
+    assert previous == home
+    assert remaining == []
+
+    previous, remaining = helper(company, [])
+    assert previous["page"] == "home"
+    assert remaining == []
+
+
+def test_company_breadcrumb_text_omits_home_segment():
+    helper = getattr(streamlit_app, "company_breadcrumb_text", None)
+
+    assert helper is not None
+    breadcrumb = helper(sample_company())
+    assert breadcrumb == "江西省 / 600001"
+    assert "首页" not in breadcrumb
+
+
+def test_sidebar_home_navigation_clears_history():
+    helper = getattr(streamlit_app, "sidebar_navigation_clears_history", None)
+
+    assert helper is not None
+    assert helper("home") is True
+    assert helper("company") is False

@@ -106,10 +106,10 @@ def navigate(page: str, remember: bool = True, **values: Any) -> None:
 
 
 def go_back() -> None:
-    previous, remaining = pop_route_history(st.session_state.get("nav_history", []))
-    if previous is None:
-        navigate("home", remember=False)
-        return
+    previous, remaining = resolve_back_navigation(
+        route_snapshot(st.session_state),
+        st.session_state.get("nav_history", []),
+    )
     st.session_state["nav_history"] = remaining
     for key, value in previous.items():
         st.session_state[key] = value
@@ -119,6 +119,31 @@ def go_back() -> None:
 def go_home() -> None:
     st.session_state["nav_history"] = []
     navigate("home", remember=False)
+
+
+def navigation_control_labels(page: str) -> list[str]:
+    if page == "home":
+        return []
+    return ["返回"]
+
+
+def resolve_back_navigation(current_route: dict, history: list[dict]) -> tuple[dict, list[dict]]:
+    previous, remaining = pop_route_history(history)
+    if previous is not None:
+        return previous, remaining
+    return {**route_snapshot(current_route), "page": "home"}, []
+
+
+def sidebar_navigation_clears_history(page: str) -> bool:
+    return page == "home"
+
+
+def company_breadcrumb_text(company: dict) -> str:
+    parts = [
+        company.get("province"),
+        company.get("code") or company.get("stock_code"),
+    ]
+    return " / ".join(str(part) for part in parts if part)
 
 
 def h(value: Any) -> str:
@@ -635,25 +660,13 @@ def render_top_bar() -> None:
 
 
 def render_navigation_controls() -> None:
-    history = st.session_state.get("nav_history", [])
-    cols = st.columns([1, 1, 5])
+    labels = navigation_control_labels(st.session_state.get("page", "home"))
+    if not labels:
+        return
+    cols = st.columns([1, 7])
     with cols[0]:
-        if st.button(
-            "返回上一页",
-            key="global-back",
-            use_container_width=True,
-            disabled=not history,
-        ):
+        if st.button(labels[0], key="global-back", use_container_width=True):
             go_back()
-    with cols[1]:
-        if st.button("回到首页", key="global-home", use_container_width=True):
-            go_home()
-    with cols[2]:
-        if history:
-            previous = history[-1]
-            st.caption(f"上一页：{route_label(previous)}")
-        else:
-            st.caption("当前没有上一页记录")
 
 
 def route_label(route: dict) -> str:
@@ -675,16 +688,6 @@ def route_label(route: dict) -> str:
 
 def render_sidebar() -> None:
     st.sidebar.title("导航")
-    if st.sidebar.button(
-        "返回上一页",
-        key="sidebar-back",
-        use_container_width=True,
-        disabled=not st.session_state.get("nav_history", []),
-    ):
-        go_back()
-    if st.sidebar.button("回到首页", key="sidebar-home", use_container_width=True):
-        go_home()
-    st.sidebar.divider()
     nav_items = [
         ("首页", "home"),
         ("公司搜索", "search"),
@@ -694,7 +697,10 @@ def render_sidebar() -> None:
     ]
     for label, page in nav_items:
         if st.sidebar.button(label, key=f"nav-{page}", use_container_width=True):
-            navigate(page)
+            if sidebar_navigation_clears_history(page):
+                go_home()
+            else:
+                navigate(page)
     st.sidebar.divider()
     if st.sidebar.button("刷新缓存", use_container_width=True):
         st.cache_data.clear()
@@ -941,7 +947,7 @@ def render_company_hero(company: dict) -> None:
     st.markdown(
         f"""
         <section class="report-hero">
-          <div class="breadcrumb">首页 / {h(company.get('province'))} / {h(company.get('code'))}</div>
+          <div class="breadcrumb">{h(company_breadcrumb_text(company))}</div>
           <div class="report-hero-grid">
             <div>
               <div class="kicker" style="color:var(--accent);">Company Reform Portrait</div>
