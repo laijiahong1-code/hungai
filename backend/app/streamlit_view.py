@@ -146,7 +146,6 @@ def company_table_rows(companies: Iterable[dict]) -> list[dict]:
                 "公司简称": company.get("shortName") or company.get("short_name", ""),
                 "省份": company.get("province", ""),
                 "行业": company.get("industry", ""),
-                "属性": company.get("stateAttribute") or company.get("ownership", ""),
                 "总分": round(float(company.get("totalScore", company.get("score", 0))), 1),
             }
         )

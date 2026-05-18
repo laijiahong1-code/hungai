@@ -59,7 +59,6 @@ def test_company_table_rows_keep_streamlit_table_fields_small():
             "公司简称": "甲能源",
             "省份": "江西省",
             "行业": "能源",
-            "属性": "国有控股",
             "总分": 82.4,
         }
     ]
