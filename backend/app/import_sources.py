@@ -438,8 +438,8 @@ def latest_audit_by_stock(source_root: Path, codes: set[str] | None = None) -> d
 
 def audit_workbook_candidates(source_root: Path) -> list[Path]:
     roots = [source_root, source_root.parent]
-    names = ["审计意见.xlsx", "FIN_Audit.xlsx"]
-    patterns = ["*审计意见*.xlsx", "*FIN_Audit*.xlsx", "*Audit*.xlsx"]
+    names = ["audit_opinions.xlsx", "审计意见.xlsx", "FIN_Audit.xlsx"]
+    patterns = ["*audit*opinion*.xlsx", "*审计意见*.xlsx", "*FIN_Audit*.xlsx", "*Audit*.xlsx"]
     candidates: list[Path] = []
     seen: set[Path] = set()
     for root in roots:
