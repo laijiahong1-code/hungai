@@ -752,7 +752,7 @@ def render_home() -> None:
           <div class="kicker">Issue 01 · A 股混改潜力研究</div>
           <div class="headline">谁会是下一个<br><span class="accent">混合所有制改革</span>的样本?</div>
           <div class="subline">
-            综合财务压力、股权信用、属地适配、政策案例四大模块，为全部 A 股上市公司生成 0-100 的混改潜力评分。
+            综合财务引资潜力、治理合规资质、区域国资适配、混改程度评分四大模块，为全部 A 股上市公司生成 0-100 的混改潜力评分。
           </div>
         </section>
         """,

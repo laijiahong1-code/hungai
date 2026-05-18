@@ -6,6 +6,7 @@ from typing import Iterable
 
 from .data import BACKEND_ROOT, PROVINCE_ALIASES, default_database, load_company_records
 from .import_sources import latest_audit_by_stock, latest_roe_by_stock
+from .scoring import get_scoring_result
 
 
 SCORE_COLLECTION = "company_scores"
@@ -13,17 +14,17 @@ PROVINCE_SCORE_COLLECTION = "province_company_scores"
 
 
 MODULE_LABELS = {
-    "financial": "财务压力",
-    "equity": "股权信用",
-    "regional": "属地适配",
-    "policy": "政策案例",
+    "finance": "财务引资潜力",
+    "equity": "治理合规资质",
+    "region": "区域国资适配",
+    "mixed": "混改程度评分",
 }
 
 MODULE_WEIGHTS = {
-    "financial": 0.30,
+    "finance": 0.40,
     "equity": 0.25,
-    "regional": 0.25,
-    "policy": 0.20,
+    "region": 0.20,
+    "mixed": 0.15,
 }
 
 
@@ -141,18 +142,11 @@ def _policy_number(record: dict, key: str) -> float:
 
 
 def _module_scores(record: dict) -> dict[str, float]:
-    return {
-        "financial": _financial_score(record),
-        "equity": _equity_score(record),
-        "regional": _policy_number(record, "regional_fit"),
-        "policy": _policy_number(record, "policy_signal"),
-    }
+    return get_scoring_result(record.get("stock_code", ""))["module_scores"]
 
 
 def _total_score(record: dict) -> float:
-    scores = _module_scores(record)
-    weighted = sum(scores[module] * MODULE_WEIGHTS[module] for module in MODULE_WEIGHTS)
-    return round(weighted, 1)
+    return round(float(get_scoring_result(record.get("stock_code", ""))["totalScore"]), 1)
 
 
 def _active_records(records: Iterable[dict]) -> list[dict]:
@@ -168,8 +162,9 @@ def _score_key(record: dict) -> tuple[float, str]:
 
 
 def _public_company(record: dict) -> dict:
-    modules = _module_scores(record)
-    score = _total_score(record)
+    scoring = get_scoring_result(record.get("stock_code", ""))
+    modules = scoring["modules"]
+    score = scoring["totalScore"]
     financials = record.get("financials", {})
     equity = record.get("equity", {})
     policy = record.get("policy", {})
@@ -190,13 +185,12 @@ def _public_company(record: dict) -> dict:
         "stateAttribute": record["ownership"],
         "score": score,
         "totalScore": score,
-        "module_scores": modules,
-        "modules": {
-            "finance": modules["financial"],
-            "equity": modules["equity"],
-            "region": modules["regional"],
-            "policy": modules["policy"],
-        },
+        "module_scores": scoring["module_scores"],
+        "modules": modules,
+        "module_details": scoring["module_details"],
+        "raw_scores": scoring["raw_scores"],
+        "potentialLevel": scoring["potentialLevel"],
+        "vetoReasons": scoring["vetoReasons"],
         "positive_reasons": positive_reasons,
         "highlights": positive_reasons,
         "risk_reasons": risk_reasons,

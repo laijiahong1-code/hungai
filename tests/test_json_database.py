@@ -136,5 +136,6 @@ def test_services_search_database_records_and_compute_scores(tmp_path):
     assert detail["financials"]["revenue"] == 120.5
     assert detail["financials"]["roi"] == 5.4
     assert detail["equity"]["pledgeRatio"] == 8.4
-    assert detail["module_scores"]["financial"] > 0
-    assert [item["stock_code"] for item in top] == ["600001", "600002"]
+    assert detail["module_scores"]["finance"] > 0
+    assert {item["stock_code"] for item in top} == {"600001", "600002"}
+    assert [item["score"] for item in top] == sorted([item["score"] for item in top], reverse=True)

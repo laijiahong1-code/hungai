@@ -6,40 +6,40 @@ from typing import Iterable
 ROUTE_KEYS = ("page", "selected_company_code", "selected_province", "selected_module")
 
 MODULE_LABELS = [
-    ("finance", "财务压力", "30%"),
-    ("equity", "股权信用", "25%"),
-    ("region", "属地适配", "25%"),
-    ("policy", "政策案例", "20%"),
+    ("finance", "财务引资潜力", "40%"),
+    ("equity", "治理合规资质", "25%"),
+    ("region", "区域国资适配", "20%"),
+    ("mixed", "混改程度评分", "15%"),
 ]
 
 MODULE_META = {
     "finance": {
-        "label": "财务压力",
-        "title": "财务压力二级页",
-        "subtitle": "从盈利能力、负债压力和现金流表现观察企业推进混改的现实压力。",
-        "weight": "30%",
-        "focus": "盈利、负债率、现金流",
+        "label": "财务引资潜力",
+        "title": "财务引资潜力二级页",
+        "subtitle": "从 Altman Z、债务结构、现金盈利、增长和分红稳定性观察引资基础。",
+        "weight": "40%",
+        "focus": "Altman Z、债务结构、现金盈利与分红",
     },
     "equity": {
-        "label": "股权信用",
-        "title": "股权信用二级页",
-        "subtitle": "从股权集中度、质押情况、审计意见和债务逾期观察治理稳定性。",
+        "label": "治理合规资质",
+        "title": "治理合规资质二级页",
+        "subtitle": "从股权结构、质押、审计、合规记录和行业地位观察治理资质。",
         "weight": "25%",
-        "focus": "股权集中度、质押、审计与债务信用",
+        "focus": "股权结构、质押、审计、合规与行业地位",
     },
     "region": {
-        "label": "属地适配",
-        "title": "属地适配二级页",
-        "subtitle": "结合公司所在地区、国资属性和地方产业方向判断区域匹配程度。",
-        "weight": "25%",
-        "focus": "所在地、地方财政与产业政策匹配",
-    },
-    "policy": {
-        "label": "政策案例",
-        "title": "政策案例二级页",
-        "subtitle": "结合政策文本、已混改样本特征和入库规则观察政策信号强弱。",
+        "label": "区域国资适配",
+        "title": "区域国资适配二级页",
+        "subtitle": "结合财政自给率、地方债务率、产业匹配和区域混改活跃度判断适配度。",
         "weight": "20%",
-        "focus": "政策文本、样本特征与入库信号",
+        "focus": "地方财政、债务率、产业匹配与混改活跃度",
+    },
+    "mixed": {
+        "label": "混改程度评分",
+        "title": "混改程度评分二级页",
+        "subtitle": "从非国有资本进入、股权多样性、制衡、融合和开放治理观察混改程度。",
+        "weight": "15%",
+        "focus": "非国有资本、股权多样性、制衡、融合与开放治理",
     },
 }
 
@@ -208,6 +208,16 @@ def module_detail(company: dict, module_key: str) -> dict:
 
 
 def _module_rows(company: dict, module_key: str) -> list[dict]:
+    evidence = company.get("module_details", {}).get(module_key, {}).get("evidence", [])
+    if evidence:
+        return [
+            {
+                "指标": str(item.get("label", "")),
+                "数值": str(item.get("value", "")),
+                "得分": f"{float(item.get('score', 0)):.1f} / {float(item.get('max', 0)):.1f}",
+            }
+            for item in evidence
+        ]
     if module_key == "finance":
         financials = company.get("financials", {})
         return [
@@ -237,7 +247,7 @@ def _module_rows(company: dict, module_key: str) -> list[dict]:
             {"指标": "国资属性", "数值": str(company.get("stateAttribute", ""))},
         ]
     return [
-        {"指标": "政策信号", "数值": f"{company.get('modules', {}).get('policy', 0)} 分"},
+        {"指标": "混改程度评分", "数值": f"{company.get('modules', {}).get('mixed', 0)} 分"},
         {"指标": "积极信号数量", "数值": f"{len(company.get('highlights', []))} 条"},
         {"指标": "风险提示数量", "数值": f"{len(company.get('risks', []))} 条"},
     ]

@@ -40,7 +40,9 @@ def test_build_company_score_documents_are_public_and_searchable():
 
     assert docs[0]["stock_code"] == "600001"
     assert docs[0]["score"] > 0
-    assert docs[0]["module_scores"].keys() == {"financial", "equity", "regional", "policy"}
+    assert docs[0]["module_scores"].keys() == {"finance", "equity", "region", "mixed"}
+    assert docs[0]["raw_scores"].keys() == {"finance", "equity", "region", "mixed"}
+    assert docs[0]["vetoReasons"] == []
     assert "甲能源A" in docs[0]["_search_text"]
 
 

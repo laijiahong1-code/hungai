@@ -115,7 +115,7 @@ def test_company_detail_contains_rank_scores_and_reason_panels():
     assert detail["stock_code"] == "600004"
     assert detail["national_rank"] > 0
     assert detail["province_rank"] > 0
-    assert set(detail["module_scores"]) == {"financial", "equity", "regional", "policy"}
+    assert set(detail["module_scores"]) == {"finance", "equity", "region", "mixed"}
     assert detail["positive_reasons"]
     assert detail["risk_reasons"]
 

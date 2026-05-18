@@ -10,9 +10,10 @@ from .db import JsonDatabase, MongoDatabase
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 DATABASE_ROOT = BACKEND_ROOT / "database"
+DEFAULT_SOURCE_ROOT = Path(r"C:\Users\赖宏\Desktop\公司混改系统")
 
 _DEFAULT_DATABASE: JsonDatabase | MongoDatabase | None = None
-_DEFAULT_DATABASE_CONFIG: tuple[str, str] | None = None
+_DEFAULT_DATABASE_CONFIG: tuple[str, str, str] | None = None
 
 
 PROVINCE_ALIASES = {
@@ -45,7 +46,8 @@ def default_database() -> JsonDatabase | MongoDatabase:
     global _DEFAULT_DATABASE, _DEFAULT_DATABASE_CONFIG
     mongodb_uri = get_setting("MONGODB_URI")
     database_name = get_setting("MONGODB_DATABASE", "mixed_reform")
-    config = (mongodb_uri, database_name)
+    local_root = json_database_root()
+    config = (mongodb_uri, database_name, str(local_root))
     if _DEFAULT_DATABASE is not None and _DEFAULT_DATABASE_CONFIG == config:
         return _DEFAULT_DATABASE
 
@@ -55,7 +57,7 @@ def default_database() -> JsonDatabase | MongoDatabase:
             database_name=database_name,
         )
     else:
-        _DEFAULT_DATABASE = JsonDatabase(DATABASE_ROOT)
+        _DEFAULT_DATABASE = JsonDatabase(local_root)
     _DEFAULT_DATABASE_CONFIG = config
     return _DEFAULT_DATABASE
 
@@ -73,6 +75,16 @@ def get_setting(name: str, default: str = "") -> str:
     except Exception:
         return default
     return str(secret_value).strip() if secret_value else default
+
+
+def json_database_root() -> Path:
+    if (DATABASE_ROOT / "companies.json").exists():
+        return DATABASE_ROOT
+    source_root = Path(get_setting("MIXED_REFORM_SOURCE_ROOT", str(DEFAULT_SOURCE_ROOT)))
+    fallback = source_root / "backend" / "database"
+    if (fallback / "companies.json").exists():
+        return fallback
+    return DATABASE_ROOT
 
 
 def _by_stock_code(records: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
