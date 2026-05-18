@@ -316,12 +316,14 @@ def build_financials(source_root: Path, companies: list[dict[str, Any]]) -> list
     ratios = latest_csv_by_stock(source_root / "资产负债率、流动比率、速动比率.csv", codes)
     income = latest_csv_by_stock(source_root / "利润表.csv", codes)
     cashflow = latest_csv_by_stock(source_root / "现金流量表（间接法）.csv", codes)
+    roe_rows = latest_roe_by_stock(source_root, codes)
 
     records = []
     for code in sorted(codes):
         ratio = ratios.get(code, {})
         income_row = income.get(code, {})
         cash_row = cashflow.get(code, {})
+        roe_row = roe_rows.get(code, {})
         records.append(
             {
                 "stock_code": code,
@@ -330,7 +332,8 @@ def build_financials(source_root: Path, companies: list[dict[str, Any]]) -> list
                 "asset_liability_ratio": ratio_to_percent(first_number(ratio, ["F011201A"])),
                 "current_ratio": first_number(ratio, ["F010101A"]),
                 "quick_ratio": first_number(ratio, ["F010201A"]),
-                "roe": 0,
+                "roe": roe_row.get("roe", 0),
+                "roe_accper": roe_row.get("roe_accper", ""),
                 "cash_flow": yuan_to_100m(first_number(cash_row, ["D000100000"])),
             }
         )
@@ -401,6 +404,57 @@ def latest_csv_by_stock(path: Path, codes: set[str]) -> dict[str, dict[str, Any]
             if current is None or cell_to_text(row.get("Accper")) > cell_to_text(current.get("Accper")):
                 latest[code] = row
     return latest
+
+
+def latest_roe_by_stock(source_root: Path, codes: set[str] | None = None) -> dict[str, dict[str, Any]]:
+    latest: dict[str, dict[str, Any]] = {}
+    for path in roe_csv_candidates(source_root):
+        with path.open("r", encoding=detect_csv_encoding(path), newline="") as handle:
+            reader = csv.DictReader(handle)
+            for row in reader:
+                if is_metadata_row(row):
+                    continue
+                code = stock_code(first_text(row, ["Stkcd", "股票代码", "证券代码", "ShortName"]))
+                if not code or (codes is not None and code not in codes):
+                    continue
+                report_type = first_text(row, ["Typrep", "Source"])
+                if report_type and report_type != "A" and not looks_like_date(report_type):
+                    continue
+                roe = to_float(row.get("ROE"))
+                if roe is None:
+                    continue
+                roe_row = {
+                    "stock_code": code,
+                    "roe": ratio_to_percent(roe),
+                    "roe_accper": first_report_date(row),
+                }
+                current = latest.get(code)
+                if current is None or roe_row["roe_accper"] > current.get("roe_accper", ""):
+                    latest[code] = roe_row
+    return latest
+
+
+def roe_csv_candidates(source_root: Path) -> list[Path]:
+    candidates: list[Path] = []
+    seen: set[Path] = set()
+    for root in [source_root, source_root.parent]:
+        path = root / "ROE.csv"
+        if path.exists() and path not in seen:
+            candidates.append(path)
+            seen.add(path)
+    return candidates
+
+
+def first_report_date(row: dict[str, Any]) -> str:
+    for key in ("Accper", "Typrep"):
+        value = first_text(row, [key])
+        if looks_like_date(value):
+            return value
+    return ""
+
+
+def looks_like_date(value: Any) -> bool:
+    return bool(re.search(r"\d{4}[-/]\d{1,2}[-/]\d{1,2}", cell_to_text(value)))
 
 
 def aggregate_pledge(path: Path, codes: set[str]) -> dict[str, float]:

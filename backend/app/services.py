@@ -5,7 +5,7 @@ from functools import lru_cache
 from typing import Iterable
 
 from .data import BACKEND_ROOT, PROVINCE_ALIASES, default_database, load_company_records
-from .import_sources import latest_audit_by_stock
+from .import_sources import latest_audit_by_stock, latest_roe_by_stock
 
 
 SCORE_COLLECTION = "company_scores"
@@ -206,10 +206,12 @@ def _public_company(record: dict) -> dict:
             "netProfit": financials.get("net_profit", 0),
             "assetLiabilityRatio": financials.get("asset_liability_ratio", 0),
             "roe": financials.get("roe", 0),
+            "roeAccper": financials.get("roe_accper", ""),
             "roi": financials.get("roi", 0),
             "cashFlow": financials.get("cash_flow", 0),
             "net_profit": financials.get("net_profit", 0),
             "asset_liability_ratio": financials.get("asset_liability_ratio", 0),
+            "roe_accper": financials.get("roe_accper", ""),
             "return_on_investment": financials.get("roi", 0),
             "cash_flow": financials.get("cash_flow", 0),
         },
@@ -248,6 +250,11 @@ def _audit_supplements_by_stock() -> dict[str, dict[str, str]]:
     return latest_audit_by_stock(BACKEND_ROOT)
 
 
+@lru_cache(maxsize=1)
+def _roe_supplements_by_stock() -> dict[str, dict[str, object]]:
+    return latest_roe_by_stock(BACKEND_ROOT)
+
+
 def _apply_audit_supplement(detail: dict) -> dict:
     stock_code = str(detail.get("stock_code") or detail.get("code") or "")
     audit = _audit_supplements_by_stock().get(stock_code)
@@ -269,6 +276,22 @@ def _apply_audit_supplement(detail: dict) -> dict:
         if _missing_text(equity.get(source_key)):
             equity[source_key] = audit.get(source_key, "")
     return detail
+
+
+def _apply_roe_supplement(detail: dict) -> dict:
+    stock_code = str(detail.get("stock_code") or detail.get("code") or "")
+    roe_row = _roe_supplements_by_stock().get(stock_code)
+    if not roe_row:
+        return detail
+    financials = detail.setdefault("financials", {})
+    financials["roe"] = roe_row.get("roe", 0)
+    financials["roeAccper"] = roe_row.get("roe_accper", "")
+    financials["roe_accper"] = roe_row.get("roe_accper", "")
+    return detail
+
+
+def _apply_detail_supplements(detail: dict) -> dict:
+    return _apply_audit_supplement(_apply_roe_supplement(detail))
 
 
 def build_company_score_documents(records: Iterable[dict]) -> list[dict]:
@@ -420,7 +443,7 @@ def get_company_detail(
             detail["module_labels"] = MODULE_LABELS
             detail["module_weights"] = MODULE_WEIGHTS
             detail["data_status"] = "mongodb"
-            return _apply_audit_supplement(detail)
+            return _apply_detail_supplements(detail)
 
     active = sorted(_active_records(_resolve_records(records, companies)), key=_score_key)
     by_code = {record["stock_code"]: record for record in active}
@@ -437,7 +460,7 @@ def get_company_detail(
     detail["module_labels"] = MODULE_LABELS
     detail["module_weights"] = MODULE_WEIGHTS
     detail["data_status"] = "json_database"
-    return _apply_audit_supplement(detail)
+    return _apply_detail_supplements(detail)
 
 
 def normalize_province(query: str) -> str | None:

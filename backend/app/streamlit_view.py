@@ -214,7 +214,7 @@ def _module_rows(company: dict, module_key: str) -> list[dict]:
             {"指标": "营业收入", "数值": f"{float(financials.get('revenue', 0)):.2f} 亿元"},
             {"指标": "归母净利润", "数值": f"{float(financials.get('netProfit', 0)):.2f} 亿元"},
             {"指标": "资产负债率", "数值": f"{financials.get('assetLiabilityRatio', 0)}%"},
-            {"指标": "ROI", "数值": f"{financials.get('roi', financials.get('roe', 0))}%"},
+            {"指标": "ROE", "数值": f"{financials.get('roe', 0)}%"},
             {"指标": "经营性现金流", "数值": f"{float(financials.get('cashFlow', 0)):.2f} 亿元"},
         ]
     if module_key == "equity":

@@ -113,8 +113,16 @@ def test_module_detail_builds_finance_secondary_page_model():
     assert "财务压力得分72.0" in detail["report_summary"]
     assert "盈利、负债率、现金流" in detail["report_summary"]
     assert {"指标": "资产负债率", "数值": "74.5%"} in detail["rows"]
-    assert {"指标": "ROI", "数值": "2.7%"} in detail["rows"]
+    assert {"指标": "ROE", "数值": "-1.2%"} in detail["rows"]
+    assert all(row["指标"] != "ROI" for row in detail["rows"])
     assert detail["notes"] == ["资产负债率偏高"]
+
+
+def test_financial_metric_card_rows_use_roe_not_roi():
+    rows = streamlit_app.metric_card_rows("财务证据", sample_company()["financials"])
+
+    assert ("ROE", "-1.2%", -1.2) in rows
+    assert all(row[0] != "ROI" for row in rows)
 
 
 def test_module_detail_builds_equity_audit_rows():

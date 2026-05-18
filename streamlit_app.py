@@ -171,6 +171,40 @@ def report_value_class(value: Any) -> str:
     return "metric-value muted-value" if is_missing_value(value) else "metric-value"
 
 
+def metric_card_rows(title: str, payload: dict) -> list[tuple[str, str, Any]]:
+    def money_value(key: str) -> tuple[str, Any]:
+        raw = payload.get(key)
+        if is_missing_value(raw):
+            return "暂未入库", raw
+        return f"{float(raw):.2f} 亿元", raw
+
+    def percent_value(key: str) -> tuple[str, Any]:
+        raw = payload.get(key)
+        if is_missing_value(raw):
+            return "暂未入库", raw
+        return f"{raw}%", raw
+
+    if title == "财务证据":
+        return [
+            ("营业收入", *money_value("revenue")),
+            ("归母净利润", *money_value("netProfit")),
+            ("资产负债率", *percent_value("assetLiabilityRatio")),
+            ("ROE", *percent_value("roe")),
+        ]
+    return [
+        ("第一大股东持股", *percent_value("topShareholderRatio")),
+        ("股权质押率", *percent_value("pledgeRatio")),
+        ("审计意见", report_value(payload.get("auditOpinion", "")), payload.get("auditOpinion", "")),
+        ("审计日期", report_value(payload.get("auditDate", "")), payload.get("auditDate", "")),
+        (
+            "审计事务所",
+            report_value(payload.get("domesticAuditFirm", "")),
+            payload.get("domesticAuditFirm", ""),
+        ),
+        ("债务逾期", report_value(payload.get("overdueDebt", "")), payload.get("overdueDebt", "")),
+    ]
+
+
 def inject_css() -> None:
     st.markdown(
         """
@@ -1047,38 +1081,7 @@ def render_company_evidence(company: dict) -> None:
 
 
 def render_metric_card(title: str, payload: dict) -> None:
-    def money_value(key: str) -> tuple[str, Any]:
-        raw = payload.get(key)
-        if is_missing_value(raw):
-            return "暂未入库", raw
-        return f"{float(raw):.2f} 亿元", raw
-
-    def percent_value(key: str) -> tuple[str, Any]:
-        raw = payload.get(key)
-        if is_missing_value(raw):
-            return "暂未入库", raw
-        return f"{raw}%", raw
-
-    if title == "财务证据":
-        rows = [
-            ("营业收入", *money_value("revenue")),
-            ("归母净利润", *money_value("netProfit")),
-            ("资产负债率", *percent_value("assetLiabilityRatio")),
-            ("ROI", *percent_value("roi")),
-        ]
-    else:
-        rows = [
-            ("第一大股东持股", *percent_value("topShareholderRatio")),
-            ("股权质押率", *percent_value("pledgeRatio")),
-            ("审计意见", report_value(payload.get("auditOpinion", "")), payload.get("auditOpinion", "")),
-            ("审计日期", report_value(payload.get("auditDate", "")), payload.get("auditDate", "")),
-            (
-                "审计事务所",
-                report_value(payload.get("domesticAuditFirm", "")),
-                payload.get("domesticAuditFirm", ""),
-            ),
-            ("债务逾期", report_value(payload.get("overdueDebt", "")), payload.get("overdueDebt", "")),
-        ]
+    rows = metric_card_rows(title, payload)
     body = "".join(
         f'<div class="metric-row"><span class="meta">{h(label)}</span><span class="{report_value_class(raw)}">{h(value)}</span></div>'
         for label, value, raw in rows
