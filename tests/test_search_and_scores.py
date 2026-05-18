@@ -8,6 +8,43 @@ from backend.app.services import (
 )
 
 
+def company_with_province_alias_in_name():
+    return [
+        {
+            "stock_code": "600001",
+            "name": "上海能源股份有限公司",
+            "short_name": "上海能源",
+            "aliases": ["上海能源"],
+            "province": "上海市",
+            "city": "上海市",
+            "industry": "能源",
+            "controller": "待补充",
+            "ownership": "国有控股",
+            "is_st": False,
+            "is_financial": False,
+            "financials": {},
+            "equity": {},
+            "policy": {},
+        },
+        {
+            "stock_code": "600002",
+            "name": "上海样本制造股份有限公司",
+            "short_name": "上海样本",
+            "aliases": [],
+            "province": "上海市",
+            "city": "上海市",
+            "industry": "制造业",
+            "controller": "待补充",
+            "ownership": "国有控股",
+            "is_st": False,
+            "is_financial": False,
+            "financials": {},
+            "equity": {},
+            "policy": {},
+        },
+    ]
+
+
 def test_top_companies_excludes_st_and_financial_and_sorts_by_score():
     results = get_top_companies(limit=20, companies=SAMPLE_COMPANIES)
 
@@ -26,6 +63,21 @@ def test_search_identifies_company_by_stock_code_and_name():
     assert by_code["company"]["stock_code"] == "600519"
     assert by_name["type"] == "company"
     assert by_name["company"]["stock_code"] == "600004"
+
+
+def test_search_prioritizes_exact_company_before_province_alias():
+    result = search_entities("上海能源", companies=company_with_province_alias_in_name())
+
+    assert result["type"] == "company"
+    assert result["company"]["stock_code"] == "600001"
+
+
+def test_search_falls_back_to_province_when_no_exact_company_match():
+    result = search_entities("上海", companies=company_with_province_alias_in_name())
+
+    assert result["type"] == "province"
+    assert result["province"] == "上海市"
+    assert result["count"] == 2
 
 
 def test_search_identifies_province_before_fuzzy_company_candidates():

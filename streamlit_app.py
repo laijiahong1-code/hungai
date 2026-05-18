@@ -532,10 +532,16 @@ def inject_css() -> None:
           padding: 13px 0;
           color: #2f3940;
         }
+        .metric-row .meta {
+          min-width: 88px;
+        }
         .metric-value {
           font-weight: 800;
           text-align: right;
           color: #101820;
+          max-width: 68%;
+          line-height: 1.45;
+          overflow-wrap: anywhere;
         }
         .muted-value {
           color: #98a2b3;
@@ -1052,13 +1058,19 @@ def render_metric_card(title: str, payload: dict) -> None:
             ("营业收入", *money_value("revenue")),
             ("归母净利润", *money_value("netProfit")),
             ("资产负债率", *percent_value("assetLiabilityRatio")),
-            ("ROE", *percent_value("roe")),
+            ("ROI", *percent_value("roi")),
         ]
     else:
         rows = [
             ("第一大股东持股", *percent_value("topShareholderRatio")),
             ("股权质押率", *percent_value("pledgeRatio")),
             ("审计意见", report_value(payload.get("auditOpinion", "")), payload.get("auditOpinion", "")),
+            ("审计日期", report_value(payload.get("auditDate", "")), payload.get("auditDate", "")),
+            (
+                "审计事务所",
+                report_value(payload.get("domesticAuditFirm", "")),
+                payload.get("domesticAuditFirm", ""),
+            ),
             ("债务逾期", report_value(payload.get("overdueDebt", "")), payload.get("overdueDebt", "")),
         ]
     body = "".join(

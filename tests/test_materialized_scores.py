@@ -100,3 +100,45 @@ def test_top_companies_can_use_materialized_mongo_collection(monkeypatch):
 
     assert len(results) == 1
     assert results[0]["stock_code"] in {"600001", "600002"}
+
+
+def test_company_detail_supplements_materialized_audit_fields(monkeypatch):
+    docs = services.build_company_score_documents([sample_record()])
+    docs[0]["equity"]["auditOpinion"] = "待补充"
+    docs[0]["equity"]["audit_opinion"] = "待补充"
+
+    class FakeDatabase:
+        def has_collection(self, collection):
+            return collection == "company_scores"
+
+        def find_query(self, collection, query=None, sort=None, limit=0, projection=None):
+            assert collection == "company_scores"
+            return docs[:limit] if limit else docs
+
+        def count_documents(self, collection, query=None):
+            return 0
+
+        def distinct(self, collection, key, query=None):
+            return ["江西省"]
+
+    monkeypatch.setattr(services, "default_database", lambda: FakeDatabase())
+    monkeypatch.setattr(
+        services,
+        "_audit_supplements_by_stock",
+        lambda: {
+            "600001": {
+                "audit_opinion": "标准无保留意见",
+                "audit_accounting_date": "2025-12-31",
+                "audit_date": "2026-03-20",
+                "auditor": "张三,李四",
+                "domestic_audit_firm": "样本会计师事务所",
+                "overseas_audit_firm": "",
+            }
+        },
+    )
+
+    detail = services.get_company_detail("600001")
+
+    assert detail["equity"]["auditOpinion"] == "标准无保留意见"
+    assert detail["equity"]["auditDate"] == "2026-03-20"
+    assert detail["equity"]["domesticAuditFirm"] == "样本会计师事务所"

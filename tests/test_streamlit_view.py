@@ -31,12 +31,17 @@ def sample_company():
             "netProfit": -3.2,
             "assetLiabilityRatio": 74.5,
             "roe": -1.2,
+            "roi": 2.7,
             "cashFlow": 5.6,
         },
         "equity": {
             "topShareholderRatio": 40,
             "pledgeRatio": 12,
             "auditOpinion": "标准无保留意见",
+            "auditAccountingDate": "2024-12-31",
+            "auditDate": "2025-03-20",
+            "auditor": "张三,李四",
+            "domesticAuditFirm": "样本会计师事务所",
             "overdueDebt": "无逾期",
         },
         "highlights": ["区域政策匹配"],
@@ -108,7 +113,17 @@ def test_module_detail_builds_finance_secondary_page_model():
     assert "财务压力得分72.0" in detail["report_summary"]
     assert "盈利、负债率、现金流" in detail["report_summary"]
     assert {"指标": "资产负债率", "数值": "74.5%"} in detail["rows"]
+    assert {"指标": "ROI", "数值": "2.7%"} in detail["rows"]
     assert detail["notes"] == ["资产负债率偏高"]
+
+
+def test_module_detail_builds_equity_audit_rows():
+    detail = module_detail(sample_company(), "equity")
+
+    assert {"指标": "审计意见", "数值": "标准无保留意见"} in detail["rows"]
+    assert {"指标": "审计日期", "数值": "2025-03-20"} in detail["rows"]
+    assert {"指标": "境内审计事务所", "数值": "样本会计师事务所"} in detail["rows"]
+    assert {"指标": "签字审计师", "数值": "张三,李四"} in detail["rows"]
 
 
 def test_module_detail_rejects_unknown_module():

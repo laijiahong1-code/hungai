@@ -215,7 +215,7 @@ def _module_rows(company: dict, module_key: str) -> list[dict]:
             {"指标": "营业收入", "数值": f"{float(financials.get('revenue', 0)):.2f} 亿元"},
             {"指标": "归母净利润", "数值": f"{float(financials.get('netProfit', 0)):.2f} 亿元"},
             {"指标": "资产负债率", "数值": f"{financials.get('assetLiabilityRatio', 0)}%"},
-            {"指标": "ROE", "数值": f"{financials.get('roe', 0)}%"},
+            {"指标": "ROI", "数值": f"{financials.get('roi', financials.get('roe', 0))}%"},
             {"指标": "经营性现金流", "数值": f"{float(financials.get('cashFlow', 0)):.2f} 亿元"},
         ]
     if module_key == "equity":
@@ -223,8 +223,12 @@ def _module_rows(company: dict, module_key: str) -> list[dict]:
         return [
             {"指标": "第一大股东持股", "数值": f"{equity.get('topShareholderRatio', 0)}%"},
             {"指标": "股权质押率", "数值": f"{equity.get('pledgeRatio', 0)}%"},
-            {"指标": "审计意见", "数值": str(equity.get("auditOpinion", ""))},
-            {"指标": "债务逾期", "数值": str(equity.get("overdueDebt", ""))},
+            {"指标": "审计意见", "数值": display_value(equity.get("auditOpinion", ""))},
+            {"指标": "审计截止日", "数值": display_value(equity.get("auditAccountingDate", ""))},
+            {"指标": "审计日期", "数值": display_value(equity.get("auditDate", ""))},
+            {"指标": "境内审计事务所", "数值": display_value(equity.get("domesticAuditFirm", ""))},
+            {"指标": "签字审计师", "数值": display_value(equity.get("auditor", ""))},
+            {"指标": "债务逾期", "数值": display_value(equity.get("overdueDebt", ""))},
         ]
     if module_key == "region":
         return [
@@ -246,6 +250,13 @@ def _module_notes(company: dict, module_key: str) -> list[str]:
     if module_key in {"finance", "equity"}:
         return risks
     return highlights
+
+
+def display_value(value: object, empty_text: str = "暂未入库") -> str:
+    text = str(value if value is not None else "").strip()
+    if text == "" or text in {"待补充", "None", "nan", "NaN"}:
+        return empty_text
+    return text
 
 
 def reason_items(reasons: Iterable[str] | None, empty_text: str) -> list[str]:

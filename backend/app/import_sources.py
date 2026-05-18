@@ -340,15 +340,22 @@ def build_financials(source_root: Path, companies: list[dict[str, Any]]) -> list
 def build_equity(source_root: Path, companies: list[dict[str, Any]]) -> list[dict[str, Any]]:
     codes = {company["stock_code"] for company in companies}
     pledge = aggregate_pledge(source_root / "股权质押情况.xlsx", codes)
+    audit = latest_audit_by_stock(source_root, codes)
     records = []
     for code in sorted(codes):
         pledge_ratio = pledge.get(code, 0.0)
+        audit_row = audit.get(code, {})
         records.append(
             {
                 "stock_code": code,
                 "top_shareholder_ratio": 40.0,
                 "pledge_ratio": pledge_ratio,
-                "audit_opinion": "待补充",
+                "audit_opinion": audit_row.get("audit_opinion", "待补充"),
+                "audit_accounting_date": audit_row.get("audit_accounting_date", ""),
+                "audit_date": audit_row.get("audit_date", ""),
+                "auditor": audit_row.get("auditor", ""),
+                "domestic_audit_firm": audit_row.get("domestic_audit_firm", ""),
+                "overseas_audit_firm": audit_row.get("overseas_audit_firm", ""),
                 "overdue_debt": "待补充",
             }
         )
@@ -417,6 +424,85 @@ def aggregate_pledge(path: Path, codes: set[str]) -> dict[str, float]:
     finally:
         workbook.close()
     return result
+
+
+def latest_audit_by_stock(source_root: Path, codes: set[str] | None = None) -> dict[str, dict[str, str]]:
+    result: dict[str, dict[str, str]] = {}
+    for path in audit_workbook_candidates(source_root):
+        for code, row in read_audit_workbook(path, codes).items():
+            current = result.get(code)
+            if current is None or audit_sort_key(row) > audit_sort_key(current):
+                result[code] = row
+    return result
+
+
+def audit_workbook_candidates(source_root: Path) -> list[Path]:
+    roots = [source_root, source_root.parent]
+    names = ["审计意见.xlsx", "FIN_Audit.xlsx"]
+    patterns = ["*审计意见*.xlsx", "*FIN_Audit*.xlsx", "*Audit*.xlsx"]
+    candidates: list[Path] = []
+    seen: set[Path] = set()
+    for root in roots:
+        for name in names:
+            path = root / name
+            if path.exists() and path not in seen:
+                candidates.append(path)
+                seen.add(path)
+        for pattern in patterns:
+            for path in sorted(root.glob(pattern), key=lambda item: item.name):
+                if path.exists() and path not in seen:
+                    candidates.append(path)
+                    seen.add(path)
+    return candidates
+
+
+def read_audit_workbook(path: Path, codes: set[str] | None = None) -> dict[str, dict[str, str]]:
+    workbook = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    latest: dict[str, dict[str, str]] = {}
+    try:
+        worksheet = workbook.worksheets[0]
+        rows = worksheet.iter_rows(values_only=True)
+        header = unique_columns([cell_to_text(value) for value in next(rows, [])])
+        if not header:
+            return latest
+        for values in rows:
+            row = dict(zip(header, [cell_to_value(value) for value in values]))
+            if is_metadata_row(row):
+                continue
+            code = stock_code(first_text(row, ["股票代码", "证券代码", "Stkcd"]))
+            if not code or (codes is not None and code not in codes):
+                continue
+            audit_opinion = first_text(row, ["审计意见", "审计意见类型", "Audittyp", "Adtremark"])
+            if not audit_opinion:
+                continue
+            audit_row = {
+                "stock_code": code,
+                "audit_opinion": audit_opinion,
+                "audit_accounting_date": first_text(row, ["会计截止日期", "Accper"]),
+                "audit_date": first_text(row, ["审计日期", "Annodt"]),
+                "auditor": first_text(row, ["审计师", "Auditor"]),
+                "domestic_audit_firm": first_text(row, ["境内审计事务所", "Dadtunit", "DadtunitID"]),
+                "overseas_audit_firm": first_text(row, ["境外审计事务所", "Iadtunit", "IadtunitID"]),
+            }
+            current = latest.get(code)
+            if current is None or audit_sort_key(audit_row) > audit_sort_key(current):
+                latest[code] = audit_row
+    finally:
+        workbook.close()
+    return latest
+
+
+def first_text(row: dict[str, Any], keys: Iterable[str]) -> str:
+    for key in keys:
+        value = row.get(key)
+        text = cell_to_text(value)
+        if text:
+            return text
+    return ""
+
+
+def audit_sort_key(row: dict[str, str]) -> tuple[str, str]:
+    return (row.get("audit_accounting_date", ""), row.get("audit_date", ""))
 
 
 def province_policy_scores(source_root: Path) -> dict[str, float]:

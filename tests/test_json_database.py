@@ -47,6 +47,7 @@ def seed_database(root: Path) -> JsonDatabase:
                 "net_profit": 8.4,
                 "asset_liability_ratio": 68.0,
                 "roe": 6.8,
+                "roi": 5.4,
                 "cash_flow": 18.6,
             },
             {
@@ -117,6 +118,7 @@ def test_company_records_are_joined_from_database_collections(tmp_path):
 
     assert records[0]["stock_code"] == "600001"
     assert records[0]["financials"]["asset_liability_ratio"] == 68.0
+    assert records[0]["financials"]["roi"] == 5.4
     assert records[0]["equity"]["pledge_ratio"] == 8.4
     assert records[0]["policy"]["positive_reasons"] == ["省内平台清晰", "产业链支持度高"]
 
@@ -132,6 +134,7 @@ def test_services_search_database_records_and_compute_scores(tmp_path):
     assert search["type"] == "company"
     assert detail["data_status"] == "json_database"
     assert detail["financials"]["revenue"] == 120.5
+    assert detail["financials"]["roi"] == 5.4
     assert detail["equity"]["pledgeRatio"] == 8.4
     assert detail["module_scores"]["financial"] > 0
     assert [item["stock_code"] for item in top] == ["600001", "600002"]

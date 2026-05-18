@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import re
+from functools import lru_cache
 from typing import Iterable
 
-from .data import PROVINCE_ALIASES, default_database, load_company_records
+from .data import BACKEND_ROOT, PROVINCE_ALIASES, default_database, load_company_records
+from .import_sources import latest_audit_by_stock
 
 
 SCORE_COLLECTION = "company_scores"
@@ -204,24 +206,69 @@ def _public_company(record: dict) -> dict:
             "netProfit": financials.get("net_profit", 0),
             "assetLiabilityRatio": financials.get("asset_liability_ratio", 0),
             "roe": financials.get("roe", 0),
+            "roi": financials.get("roi", 0),
             "cashFlow": financials.get("cash_flow", 0),
             "net_profit": financials.get("net_profit", 0),
             "asset_liability_ratio": financials.get("asset_liability_ratio", 0),
+            "return_on_investment": financials.get("roi", 0),
             "cash_flow": financials.get("cash_flow", 0),
         },
         "equity": {
             "topShareholderRatio": equity.get("top_shareholder_ratio", 0),
             "pledgeRatio": equity.get("pledge_ratio", 0),
             "auditOpinion": equity.get("audit_opinion", ""),
+            "auditAccountingDate": equity.get("audit_accounting_date", ""),
+            "auditDate": equity.get("audit_date", ""),
+            "auditor": equity.get("auditor", ""),
+            "domesticAuditFirm": equity.get("domestic_audit_firm", ""),
+            "overseasAuditFirm": equity.get("overseas_audit_firm", ""),
             "overdueDebt": equity.get("overdue_debt", ""),
             "top_shareholder_ratio": equity.get("top_shareholder_ratio", 0),
             "pledge_ratio": equity.get("pledge_ratio", 0),
             "audit_opinion": equity.get("audit_opinion", ""),
+            "audit_accounting_date": equity.get("audit_accounting_date", ""),
+            "audit_date": equity.get("audit_date", ""),
+            "auditor": equity.get("auditor", ""),
+            "domestic_audit_firm": equity.get("domestic_audit_firm", ""),
+            "overseas_audit_firm": equity.get("overseas_audit_firm", ""),
             "overdue_debt": equity.get("overdue_debt", ""),
         },
         "is_st": record.get("is_st", False),
         "is_financial": record.get("is_financial", False),
     }
+
+
+def _missing_text(value: object) -> bool:
+    text = str(value if value is not None else "").strip()
+    return text == "" or text in {"待补充", "暂未入库", "None", "nan", "NaN"}
+
+
+@lru_cache(maxsize=1)
+def _audit_supplements_by_stock() -> dict[str, dict[str, str]]:
+    return latest_audit_by_stock(BACKEND_ROOT)
+
+
+def _apply_audit_supplement(detail: dict) -> dict:
+    stock_code = str(detail.get("stock_code") or detail.get("code") or "")
+    audit = _audit_supplements_by_stock().get(stock_code)
+    if not audit:
+        return detail
+
+    equity = detail.setdefault("equity", {})
+    fields = [
+        ("auditOpinion", "audit_opinion"),
+        ("auditAccountingDate", "audit_accounting_date"),
+        ("auditDate", "audit_date"),
+        ("auditor", "auditor"),
+        ("domesticAuditFirm", "domestic_audit_firm"),
+        ("overseasAuditFirm", "overseas_audit_firm"),
+    ]
+    for public_key, source_key in fields:
+        if _missing_text(equity.get(public_key)):
+            equity[public_key] = audit.get(source_key, "")
+        if _missing_text(equity.get(source_key)):
+            equity[source_key] = audit.get(source_key, "")
+    return detail
 
 
 def build_company_score_documents(records: Iterable[dict]) -> list[dict]:
@@ -373,7 +420,7 @@ def get_company_detail(
             detail["module_labels"] = MODULE_LABELS
             detail["module_weights"] = MODULE_WEIGHTS
             detail["data_status"] = "mongodb"
-            return detail
+            return _apply_audit_supplement(detail)
 
     active = sorted(_active_records(_resolve_records(records, companies)), key=_score_key)
     by_code = {record["stock_code"]: record for record in active}
@@ -390,7 +437,7 @@ def get_company_detail(
     detail["module_labels"] = MODULE_LABELS
     detail["module_weights"] = MODULE_WEIGHTS
     detail["data_status"] = "json_database"
-    return detail
+    return _apply_audit_supplement(detail)
 
 
 def normalize_province(query: str) -> str | None:
@@ -429,33 +476,6 @@ def search_entities(
     if not text:
         return {"type": "empty", "companies": []}
 
-    province = normalize_province(text)
-    if province:
-        if _can_use_materialized(records, companies):
-            database = _materialized_database()
-            if database is not None:
-                if database.has_collection(PROVINCE_SCORE_COLLECTION):
-                    documents = database.find_query(
-                        PROVINCE_SCORE_COLLECTION,
-                        {"province": province},
-                        limit=1,
-                    )
-                    count = len(documents[0].get("companies", [])) if documents else 0
-                    return {"type": "province", "province": province, "count": count}
-                return {
-                    "type": "province",
-                    "province": province,
-                    "count": database.count_documents(
-                        SCORE_COLLECTION, _active_query({"province": province})
-                    ),
-                }
-        current_records = _resolve_records(records, companies)
-        return {
-            "type": "province",
-            "province": province,
-            "count": len(get_province_companies(province, records=current_records)),
-        }
-
     if _can_use_materialized(records, companies):
         database = _materialized_database()
         if database is not None:
@@ -478,6 +498,24 @@ def search_entities(
                 return {
                     "type": "candidates",
                     "companies": [_clean_scored_doc(record) for record in exact_matches[:8]],
+                }
+
+            province = normalize_province(text)
+            if province:
+                if database.has_collection(PROVINCE_SCORE_COLLECTION):
+                    documents = database.find_query(
+                        PROVINCE_SCORE_COLLECTION,
+                        {"province": province},
+                        limit=1,
+                    )
+                    count = len(documents[0].get("companies", [])) if documents else 0
+                    return {"type": "province", "province": province, "count": count}
+                return {
+                    "type": "province",
+                    "province": province,
+                    "count": database.count_documents(
+                        SCORE_COLLECTION, _active_query({"province": province})
+                    ),
                 }
 
             candidates = database.find_query(
@@ -503,12 +541,26 @@ def search_entities(
             matches.append((score, record))
 
     matches.sort(key=lambda item: (-item[0], item[1].get("short_name", "")))
-    if not matches:
-        return {"type": "none", "companies": []}
-
     exact_matches = [record for score, record in matches if score == 100]
     if len(exact_matches) == 1:
         return {"type": "company", "company": _public_company(exact_matches[0])}
+    if len(exact_matches) > 1:
+        exact_matches.sort(key=_score_key)
+        return {
+            "type": "candidates",
+            "companies": [_public_company(record) for record in exact_matches[:8]],
+        }
+
+    province = normalize_province(text)
+    if province:
+        return {
+            "type": "province",
+            "province": province,
+            "count": len(get_province_companies(province, records=current_records)),
+        }
+
+    if not matches:
+        return {"type": "none", "companies": []}
 
     candidates = [record for _, record in matches]
     candidates.sort(key=_score_key)
