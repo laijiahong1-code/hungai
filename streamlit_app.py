@@ -20,10 +20,12 @@ from backend.app.streamlit_view import (
     company_table_rows,
     module_detail,
     module_cards,
+    potential_level_rows,
     reason_items,
     pop_route_history,
     push_route_history,
     route_snapshot,
+    scoring_rule_sections,
     score_band,
 )
 
@@ -62,6 +64,7 @@ def cached_search(query: str) -> dict:
 
 def main() -> None:
     ensure_state()
+    apply_page_query_params()
     inject_css()
     render_top_bar()
     render_navigation_controls()
@@ -90,7 +93,35 @@ def ensure_state() -> None:
     st.session_state.setdefault("nav_history", [])
 
 
+def page_from_query_params(params: Any) -> str | None:
+    try:
+        raw_page = params.get("page")
+    except AttributeError:
+        return None
+    if isinstance(raw_page, list):
+        raw_page = raw_page[0] if raw_page else None
+    if raw_page == "method":
+        return "method"
+    return None
+
+
+def apply_page_query_params() -> None:
+    query_page = page_from_query_params(st.query_params)
+    if query_page:
+        st.session_state["page"] = query_page
+
+
+def clear_page_query_params() -> None:
+    if "page" not in st.query_params:
+        return
+    try:
+        del st.query_params["page"]
+    except Exception:
+        st.query_params.clear()
+
+
 def navigate(page: str, remember: bool = True, **values: Any) -> None:
+    clear_page_query_params()
     current_route = route_snapshot(st.session_state)
     next_route = {**current_route, "page": page, **values}
     if remember:
@@ -106,6 +137,7 @@ def navigate(page: str, remember: bool = True, **values: Any) -> None:
 
 
 def go_back() -> None:
+    clear_page_query_params()
     previous, remaining = resolve_back_navigation(
         route_snapshot(st.session_state),
         st.session_state.get("nav_history", []),
@@ -148,6 +180,88 @@ def company_breadcrumb_text(company: dict) -> str:
 
 def h(value: Any) -> str:
     return html.escape(str(value if value is not None else ""))
+
+
+def rule_tone_class(key: str) -> str:
+    return f"rule-tone-{key}" if key in {"finance", "equity", "region", "mixed"} else "rule-tone-default"
+
+
+def weight_percent_value(weight: str) -> int:
+    try:
+        return int(str(weight).strip().rstrip("%"))
+    except ValueError:
+        return 0
+
+
+def rule_weight_bar_html(section: dict) -> str:
+    width = max(0, min(100, weight_percent_value(str(section.get("weight", "")))))
+    tone = rule_tone_class(str(section.get("key", "")))
+    return (
+        '<div class="rule-weight-bar">'
+        f'<span class="rule-weight-fill {tone}" style="width:{width}%;"></span>'
+        "</div>"
+    )
+
+
+def rule_weight_stack_html(sections: list[dict]) -> str:
+    rows = []
+    for section in sections:
+        rows.append(
+            '<div class="rule-weight-row">'
+            '<div class="rule-weight-meta">'
+            f'<span>{h(section.get("label", ""))}</span>'
+            f'<strong>{h(section.get("weight", ""))}</strong>'
+            "</div>"
+            f"{rule_weight_bar_html(section)}"
+            "</div>"
+        )
+    return f'<div class="rule-weight-stack">{"".join(rows)}</div>'
+
+
+def rule_module_card_html(section: dict) -> str:
+    tone = rule_tone_class(str(section.get("key", "")))
+    items = "".join(f"<li>{h(item)}</li>" for item in section.get("items", []))
+    return (
+        f'<div class="rule-module-card {tone}" data-uniform-height="true">'
+        '<div class="rule-card-head">'
+        "<div>"
+        f'<div class="meta">评分模块</div>'
+        f'<h3>{h(section.get("label", ""))}</h3>'
+        "</div>"
+        f'<div class="rule-weight-number">{h(section.get("weight", ""))}</div>'
+        "</div>"
+        f"{rule_weight_bar_html(section)}"
+        '<div class="rule-card-facts">'
+        f'<span>原始满分 {h(section.get("raw_max", ""))}</span>'
+        "<span>归一化 100</span>"
+        "</div>"
+        f'<p class="rule-summary">{h(section.get("summary", ""))}</p>'
+        f'<ul class="rule-list">{items}</ul>'
+        "</div>"
+    )
+
+
+def potential_level_display_range(score_range: str) -> str:
+    if score_range == ">=80":
+        return "80-100"
+    if score_range == ">=70":
+        return "70-79"
+    if score_range == ">=60":
+        return "60-69"
+    return "<60"
+
+
+def potential_level_grid_html(rows: list[dict]) -> str:
+    items = []
+    for index, row in enumerate(rows):
+        display_range = potential_level_display_range(str(row.get("分数区间", "")))
+        items.append(
+            f'<div class="level-item" data-level="{index}">'
+            f'<div class="level-score">{h(display_range)}</div>'
+            f'<div class="company-title">{h(row.get("潜力等级", ""))}</div>'
+            "</div>"
+        )
+    return f'<div class="level-grid">{"".join(items)}</div>'
 
 
 def score(company: dict) -> float:
@@ -282,11 +396,28 @@ def inject_css() -> None:
         .hero {
           margin: 0 -2rem 0 -2rem;
           padding: 70px 2rem 82px 2rem;
+          position: relative;
           background:
             radial-gradient(circle at 18% 20%, rgba(255, 232, 176, 0.72), transparent 34%),
             radial-gradient(circle at 78% 25%, rgba(202, 244, 239, 0.86), transparent 34%),
             linear-gradient(120deg, #fffaf0, #f5fff9 48%, #eaf8fb);
           border-bottom: 1px solid rgba(16, 24, 32, 0.08);
+        }
+        .hero-rule-link {
+          position: absolute;
+          right: 2rem;
+          top: 44px;
+          color: var(--accent);
+          font-size: 14px;
+          font-weight: 800;
+          text-decoration: none;
+          border-bottom: 2px solid var(--accent);
+          padding-bottom: 5px;
+          transition: color 160ms ease, border-color 160ms ease;
+        }
+        .hero-rule-link:hover {
+          color: var(--accent-dark);
+          border-color: var(--accent-dark);
         }
         .kicker {
           color: var(--muted);
@@ -633,6 +764,207 @@ def inject_css() -> None:
           background: rgba(255, 255, 255, 0.72);
           border-radius: 0 16px 16px 0;
         }
+        .rule-hero {
+          margin: 0 -2rem 42px -2rem;
+          padding: 44px 2rem 48px 2rem;
+          background:
+            linear-gradient(90deg, rgba(16, 24, 32, 0.04) 1px, transparent 1px),
+            linear-gradient(180deg, rgba(16, 24, 32, 0.035) 1px, transparent 1px),
+            linear-gradient(135deg, #fff9ed 0%, #f8fcf8 54%, #edf8fa 100%);
+          background-size: 28px 28px, 28px 28px, auto;
+          border-bottom: 1px solid rgba(16, 24, 32, 0.10);
+        }
+        .rule-hero-grid {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
+          gap: 28px;
+          align-items: start;
+        }
+        .rule-formula-panel {
+          border-left: 4px solid var(--accent);
+          padding: 18px 22px;
+          background: rgba(255, 255, 255, 0.74);
+          border-radius: 0 18px 18px 0;
+        }
+        .method-formula {
+          font-family: "Noto Serif SC", serif;
+          font-size: clamp(24px, 3vw, 36px);
+          line-height: 1.35;
+          margin-top: 10px;
+        }
+        .normalization-flow {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 10px;
+          margin-top: 20px;
+        }
+        .flow-step {
+          border: 1px solid var(--line);
+          background: rgba(255, 255, 255, 0.78);
+          border-radius: 14px;
+          padding: 13px;
+        }
+        .flow-step strong {
+          display: block;
+          color: var(--ink);
+          margin-top: 4px;
+          font-size: 14px;
+        }
+        .rule-weight-stack {
+          border: 1px solid var(--line);
+          background: rgba(255, 255, 255, 0.84);
+          border-radius: 18px;
+          padding: 18px;
+          box-shadow: 0 18px 40px rgba(16, 24, 32, 0.08);
+        }
+        .rule-weight-row + .rule-weight-row {
+          margin-top: 15px;
+        }
+        .rule-weight-meta {
+          display: flex;
+          justify-content: space-between;
+          gap: 12px;
+          color: #344054;
+          font-size: 13px;
+          font-weight: 700;
+          margin-bottom: 7px;
+        }
+        .rule-weight-meta strong {
+          font-family: "Noto Serif SC", serif;
+          color: var(--ink);
+          font-size: 18px;
+        }
+        .rule-weight-bar {
+          height: 10px;
+          background: #ece8df;
+          border-radius: 999px;
+          overflow: hidden;
+        }
+        .rule-weight-fill {
+          display: block;
+          height: 100%;
+          border-radius: 999px;
+        }
+        .rule-weight-fill.rule-tone-finance, .rule-module-card.rule-tone-finance {
+          --rule-color: #ef3f2d;
+          --rule-soft: #fff0ec;
+        }
+        .rule-weight-fill.rule-tone-equity, .rule-module-card.rule-tone-equity {
+          --rule-color: #4338ca;
+          --rule-soft: #f0efff;
+        }
+        .rule-weight-fill.rule-tone-region, .rule-module-card.rule-tone-region {
+          --rule-color: #0f766e;
+          --rule-soft: #e9f8f4;
+        }
+        .rule-weight-fill.rule-tone-mixed, .rule-module-card.rule-tone-mixed {
+          --rule-color: #b54708;
+          --rule-soft: #fff4df;
+        }
+        .rule-weight-fill {
+          background: linear-gradient(90deg, var(--rule-color), rgba(239, 63, 45, 0.72));
+        }
+        .rule-module-card {
+          box-sizing: border-box;
+          height: 480px;
+          border: 1px solid rgba(16, 24, 32, 0.12);
+          border-top: 4px solid var(--rule-color);
+          background: linear-gradient(180deg, var(--rule-soft), rgba(255, 255, 255, 0.90) 34%);
+          border-radius: 18px;
+          padding: 22px;
+          box-shadow: 0 14px 34px rgba(16, 24, 32, 0.08);
+          display: flex;
+          flex-direction: column;
+          overflow: hidden;
+        }
+        .rule-card-head {
+          display: flex;
+          justify-content: space-between;
+          gap: 18px;
+          align-items: flex-start;
+          margin-bottom: 12px;
+        }
+        .rule-card-head h3 {
+          margin: 4px 0 0 0;
+          font-size: 23px;
+        }
+        .rule-weight-number {
+          color: var(--rule-color);
+          font-family: "Noto Serif SC", serif;
+          font-size: 42px;
+          line-height: 1;
+        }
+        .rule-card-facts {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          margin: 14px 0;
+        }
+        .rule-card-facts span {
+          border: 1px solid rgba(16, 24, 32, 0.12);
+          background: rgba(255, 255, 255, 0.74);
+          border-radius: 999px;
+          padding: 5px 10px;
+          color: #344054;
+          font-size: 12px;
+          font-weight: 700;
+        }
+        .rule-summary {
+          color: #344054;
+          font-size: 13px;
+          line-height: 1.7;
+          margin: 0 0 12px 0;
+        }
+        .rule-stat-row {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 10px;
+          margin: 16px 0 18px 0;
+        }
+        .rule-stat {
+          border-top: 1px solid var(--line);
+          padding-top: 10px;
+        }
+        .rule-list {
+          margin: 0;
+          padding-left: 18px;
+          color: #344054;
+          line-height: 1.9;
+          overflow-wrap: anywhere;
+        }
+        .level-grid {
+          display: grid;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+          gap: 12px;
+        }
+        .level-item {
+          border: 1px solid var(--line);
+          background: rgba(255, 255, 255, 0.78);
+          border-radius: 16px;
+          padding: 16px;
+        }
+        .level-item[data-level="0"] {
+          border-color: rgba(15, 118, 110, 0.28);
+          background: #ecfbf7;
+        }
+        .level-item[data-level="1"] {
+          border-color: rgba(239, 63, 45, 0.24);
+          background: #fff0ec;
+        }
+        .level-item[data-level="2"] {
+          border-color: rgba(181, 71, 8, 0.24);
+          background: #fff4df;
+        }
+        .level-item[data-level="3"] {
+          border-color: rgba(71, 84, 103, 0.18);
+          background: #f3f5f7;
+        }
+        .level-score {
+          color: var(--accent);
+          font-family: "Noto Serif SC", serif;
+          font-size: 24px;
+          margin-bottom: 6px;
+        }
         div[data-testid="stButton"] > button {
           border-radius: 999px;
           border: 1px solid rgba(16, 24, 32, 0.16);
@@ -652,7 +984,7 @@ def inject_css() -> None:
           min-height: 48px;
         }
         @media (max-width: 760px) {
-          .hero, .detail-hero, .report-hero, .module-hero, .topbar {
+          .hero, .detail-hero, .report-hero, .module-hero, .rule-hero, .topbar {
             margin-left: -1rem;
             margin-right: -1rem;
             padding-left: 1rem;
@@ -661,10 +993,15 @@ def inject_css() -> None:
           .feature-card {
             min-height: 300px;
           }
-          .report-hero-grid, .module-hero-grid, .evidence-grid, .module-detail-grid {
+          .hero-rule-link {
+            position: static;
+            display: inline-flex;
+            margin-bottom: 18px;
+          }
+          .rule-hero-grid, .report-hero-grid, .module-hero-grid, .evidence-grid, .module-detail-grid, .level-grid {
             grid-template-columns: 1fr;
           }
-          .report-stats {
+          .report-stats, .rule-stat-row, .normalization-flow {
             grid-template-columns: 1fr;
           }
         }
@@ -721,7 +1058,7 @@ def route_label(route: dict) -> str:
         module_key = route.get("selected_module", "finance")
         module_name = MODULE_META.get(module_key, {}).get("label", module_key)
         return f"模块二级页 · {module_name}"
-    return "方法论"
+    return "评分规则"
 
 
 def render_sidebar() -> None:
@@ -731,7 +1068,7 @@ def render_sidebar() -> None:
         ("公司搜索", "search"),
         ("省份榜单", "province"),
         ("公司详情", "company"),
-        ("方法论", "method"),
+        ("评分规则", "method"),
     ]
     for label, page in nav_items:
         if st.sidebar.button(label, key=f"nav-{page}", width="stretch"):
@@ -753,6 +1090,7 @@ def render_home() -> None:
     st.markdown(
         """
         <section class="hero">
+          <a class="hero-rule-link" href="?page=method" target="_self">评分规则 ↗</a>
           <div class="kicker">Issue 01 · A 股混改潜力研究</div>
           <div class="headline">谁会是下一个<br><span class="accent">混合所有制改革</span>的样本?</div>
           <div class="subline">
@@ -1153,27 +1491,53 @@ def render_module_page() -> None:
 
 
 def render_method_page() -> None:
-    st.markdown('<div class="section-kicker">Methodology</div>', unsafe_allow_html=True)
-    st.markdown('<div class="section-title">评分方法论</div>', unsafe_allow_html=True)
+    sections = scoring_rule_sections()
     st.markdown(
-        """
-        <div class="method-box">
-          本系统使用 Python 读取 MongoDB 云端数据库，并在 Python 服务层完成评分计算。
-          前端展示使用 Streamlit 编写，符合 Python 课程技术栈。
-        </div>
+        f"""
+        <section class="rule-hero">
+          <div class="rule-hero-grid">
+            <div>
+              <div class="section-kicker" style="margin-top:0;">Scoring Rules</div>
+              <div class="section-title">评分规则</div>
+              <div class="rule-formula-panel">
+                <div class="meta">综合评分公式</div>
+                <div class="method-formula">总分 = 财务×40% + 治理×25% + 区域×20% + 混改×15%</div>
+                <div class="subline" style="margin-top:16px;">
+                  系统使用 Python 读取 MongoDB 云端数据库，在 Python 服务层完成四模块评分计算，并用 Streamlit 展示评分结果。
+                  各模块先按原始满分计算，再归一化到 0-100 分，最后按权重合成为公司混改潜力总分。
+                </div>
+                <div class="normalization-flow">
+                  <div class="flow-step"><div class="meta">Step 01</div><strong>原始指标打分</strong></div>
+                  <div class="flow-step"><div class="meta">Step 02</div><strong>归一化到 100 分</strong></div>
+                  <div class="flow-step"><div class="meta">Step 03</div><strong>按权重合成总分</strong></div>
+                </div>
+              </div>
+            </div>
+            <div>
+              <div class="meta" style="margin-bottom:10px;">四模块权重占比</div>
+              {rule_weight_stack_html(sections)}
+            </div>
+          </div>
+        </section>
         """,
         unsafe_allow_html=True,
     )
-    for key, meta in MODULE_META.items():
-        st.markdown(
-            f"""
-            <div class="detail-card">
-              <h3>{h(meta['label'])} · {h(meta['weight'])}</h3>
-              <div class="meta">{h(meta['subtitle'])}</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+
+    st.markdown('<div class="section-kicker">Module Weights</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">模块对比</div>', unsafe_allow_html=True)
+    for row_start in range(0, len(sections), 2):
+        cols = st.columns(2, gap="large")
+        for index, section in enumerate(sections[row_start : row_start + 2]):
+            with cols[index]:
+                st.markdown(rule_module_card_html(section), unsafe_allow_html=True)
+
+    st.markdown('<div class="section-kicker">Potential Level</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">潜力等级</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="method-box" style="margin-bottom:16px;">总分越高，表示公司在财务基础、治理合规、区域适配和既有混改基础上的综合准备度越强。</div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(potential_level_grid_html(potential_level_rows()), unsafe_allow_html=True)
 
 
 if __name__ == "__main__":

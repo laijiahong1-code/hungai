@@ -7,10 +7,12 @@ from backend.app.streamlit_view import (
     module_detail,
     module_cards,
     module_score_rows,
+    potential_level_rows,
     pop_route_history,
     push_route_history,
     reason_items,
     route_snapshot,
+    scoring_rule_sections,
     score_band,
 )
 
@@ -283,3 +285,77 @@ def test_sidebar_home_navigation_clears_history():
     assert helper is not None
     assert helper("home") is True
     assert helper("company") is False
+
+
+def test_method_route_is_labeled_as_scoring_rules():
+    assert streamlit_app.route_label({"page": "method"}) == "评分规则"
+
+
+def test_scoring_rule_sections_match_four_module_contract():
+    sections = scoring_rule_sections()
+
+    assert [section["key"] for section in sections] == ["finance", "equity", "region", "mixed"]
+    assert [section["weight"] for section in sections] == ["40%", "25%", "20%", "15%"]
+    assert [section["raw_max"] for section in sections] == ["50", "25", "20", "100"]
+    assert sections[0]["items"][0] == "Altman Z"
+    assert "股权开放治理程度" in sections[-1]["items"]
+
+
+def test_potential_level_rows_describe_all_score_bands():
+    rows = potential_level_rows()
+
+    assert rows == [
+        {"分数区间": ">=80", "潜力等级": "高潜力"},
+        {"分数区间": ">=70", "潜力等级": "中高潜力"},
+        {"分数区间": ">=60", "潜力等级": "观察潜力"},
+        {"分数区间": "<60", "潜力等级": "低潜力"},
+    ]
+
+
+def test_page_from_query_params_only_accepts_method_page():
+    helper = getattr(streamlit_app, "page_from_query_params", None)
+
+    assert helper is not None
+    assert helper({"page": "method"}) == "method"
+    assert helper({"page": ["method"]}) == "method"
+    assert helper({"page": "home"}) is None
+    assert helper({"page": "company"}) is None
+    assert helper({}) is None
+
+
+def test_rule_weight_stack_html_makes_module_weights_scannable():
+    helper = getattr(streamlit_app, "rule_weight_stack_html", None)
+
+    assert helper is not None
+    html = helper(scoring_rule_sections())
+    assert 'class="rule-weight-stack"' in html
+    assert 'class="rule-weight-fill rule-tone-finance" style="width:40%;"' in html
+    assert 'class="rule-weight-fill rule-tone-equity" style="width:25%;"' in html
+    assert "财务引资潜力" in html
+    assert "40%" in html
+
+
+def test_rule_module_card_html_emphasizes_weight_and_visual_tone():
+    helper = getattr(streamlit_app, "rule_module_card_html", None)
+
+    assert helper is not None
+    card = helper(scoring_rule_sections()[0])
+    assert 'class="rule-module-card rule-tone-finance"' in card
+    assert 'data-uniform-height="true"' in card
+    assert 'class="rule-weight-number">40%</div>' in card
+    assert 'class="rule-weight-fill rule-tone-finance" style="width:40%;"' in card
+    assert "原始满分 50" in card
+    assert "Altman Z" in card
+
+
+def test_potential_level_grid_html_is_compact_and_not_markdown_code():
+    helper = getattr(streamlit_app, "potential_level_grid_html", None)
+
+    assert helper is not None
+    html = helper(potential_level_rows())
+    assert html.startswith('<div class="level-grid">')
+    assert html.endswith("</div>")
+    assert "\n" not in html
+    assert html.count('class="level-item"') == 4
+    assert "高潜力" in html
+    assert "80-100" in html

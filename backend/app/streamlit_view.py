@@ -44,6 +44,57 @@ MODULE_META = {
 }
 
 
+SCORING_RULE_SECTIONS = [
+    {
+        "key": "finance",
+        "label": "财务引资潜力",
+        "weight": "40%",
+        "raw_max": "50",
+        "summary": "观察企业资产质量、偿债结构、现金盈利能力、成长性和分红稳定性，判断其对社会资本的吸引基础。",
+        "items": ["Altman Z", "资产负债率", "经营现金流/收入", "净利润三年CAGR", "连续分红年数", "有息负债占比"],
+    },
+    {
+        "key": "equity",
+        "label": "治理合规资质",
+        "weight": "25%",
+        "raw_max": "25",
+        "summary": "从股权结构、质押风险、审计意见、合规记录和行业地位判断企业治理透明度与合规稳定性。",
+        "items": ["股权结构", "股权质押", "审计意见", "合规记录", "行业地位"],
+    },
+    {
+        "key": "region",
+        "label": "区域国资适配",
+        "weight": "20%",
+        "raw_max": "20",
+        "summary": "结合地方财政、债务压力、产业政策匹配和区域混改活跃度，判断属地国资推进混改的适配条件。",
+        "items": ["财政自给率", "地方政府债务率", "产业匹配度", "区域混改活跃度"],
+    },
+    {
+        "key": "mixed",
+        "label": "混改程度评分",
+        "weight": "15%",
+        "raw_max": "100",
+        "summary": "衡量企业已有混改基础，包括非国有资本进入、股权多样性、制衡、融合和开放治理程度。",
+        "items": ["非国有资本进入程度", "股权结构多样性", "股权制衡程度", "股权融合程度", "股权开放治理程度"],
+    },
+]
+
+POTENTIAL_LEVEL_ROWS = [
+    {"分数区间": ">=80", "潜力等级": "高潜力"},
+    {"分数区间": ">=70", "潜力等级": "中高潜力"},
+    {"分数区间": ">=60", "潜力等级": "观察潜力"},
+    {"分数区间": "<60", "潜力等级": "低潜力"},
+]
+
+
+def scoring_rule_sections() -> list[dict]:
+    return [{**section, "items": list(section["items"])} for section in SCORING_RULE_SECTIONS]
+
+
+def potential_level_rows() -> list[dict]:
+    return [row.copy() for row in POTENTIAL_LEVEL_ROWS]
+
+
 def _short_name(company: dict) -> str:
     return str(company.get("shortName") or company.get("short_name") or company.get("name") or "")
 
