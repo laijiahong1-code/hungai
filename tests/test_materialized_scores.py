@@ -246,3 +246,35 @@ def test_company_detail_seeds_top_shareholder_collection_when_mongo_missing(monk
     assert fake_database.uploaded_count == 1
     assert detail["equity"]["topShareholderRatio"] == 52.36
     assert detail["equity"]["topShareholderName"] == "江西省国有资本运营控股集团有限公司"
+
+
+def test_ensure_top_shareholder_collection_seeded_uploads_default_records(monkeypatch):
+    top_shareholder = {
+        "stock_code": "600001",
+        "top_shareholder_name": "江西省国有资本运营控股集团有限公司",
+        "top_shareholder_ratio": 52.36,
+    }
+
+    class FakeDatabase:
+        def __init__(self):
+            self.collections = {}
+            self.uploaded_count = 0
+
+        def has_collection(self, collection):
+            return collection in self.collections
+
+        def replace_all(self, collection, records):
+            self.collections[collection] = records
+            self.uploaded_count = len(records)
+
+    fake_database = FakeDatabase()
+    monkeypatch.setattr(services, "default_database", lambda: fake_database)
+    monkeypatch.setattr(
+        services,
+        "_top_shareholder_supplements_by_stock",
+        lambda: {"600001": top_shareholder},
+    )
+
+    assert services.ensure_top_shareholder_collection_seeded() is True
+    assert fake_database.uploaded_count == 1
+    assert services.ensure_top_shareholder_collection_seeded() is False

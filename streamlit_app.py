@@ -8,6 +8,7 @@ import streamlit as st
 from backend.app.data import get_setting
 from backend.app.mixed_status import load_status_dashboard
 from backend.app.services import (
+    ensure_top_shareholder_collection_seeded,
     get_all_provinces,
     get_company_detail,
     get_province_companies,
@@ -68,10 +69,16 @@ def cached_mixed_status_dashboard() -> dict[str, Any]:
     return load_status_dashboard()
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def cached_top_shareholder_seed() -> bool:
+    return ensure_top_shareholder_collection_seeded()
+
+
 def main() -> None:
     ensure_state()
     apply_page_query_params()
     inject_css()
+    cached_top_shareholder_seed()
     render_top_bar()
     render_navigation_controls()
     render_sidebar()

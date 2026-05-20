@@ -283,6 +283,18 @@ def _seed_top_shareholder_collection(database: object) -> bool:
     return True
 
 
+def ensure_top_shareholder_collection_seeded() -> bool:
+    try:
+        database = default_database()
+        if not hasattr(database, "has_collection"):
+            return False
+        if database.has_collection(TOP_SHAREHOLDER_COLLECTION):
+            return False
+        return _seed_top_shareholder_collection(database)
+    except Exception:
+        return False
+
+
 def _top_shareholder_from_database(stock_code: str) -> dict[str, object] | None:
     try:
         database = default_database()
