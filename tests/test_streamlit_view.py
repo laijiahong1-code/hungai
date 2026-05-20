@@ -154,6 +154,17 @@ def test_financial_metric_card_rows_use_roe_not_roi():
     assert all(row[0] != "ROI" for row in rows)
 
 
+def test_equity_metric_card_rows_include_top_shareholder_name_and_ratio():
+    company = sample_company()
+    company["equity"]["topShareholderName"] = "深圳市地铁集团有限公司"
+    company["equity"]["topShareholderRatio"] = 27.18
+
+    rows = streamlit_app.metric_card_rows("股权与信用", company["equity"])
+
+    assert ("第一大股东", "深圳市地铁集团有限公司", "深圳市地铁集团有限公司") in rows
+    assert ("第一大股东持股", "27.18%", 27.18) in rows
+
+
 def test_data_source_label_uses_streamlit_secret_mongodb_uri(monkeypatch):
     monkeypatch.delenv("MONGODB_URI", raising=False)
     monkeypatch.setattr(
@@ -173,6 +184,18 @@ def test_module_detail_builds_equity_audit_rows():
     assert {"指标": "股权结构", "数值": "4.5/5", "得分": "4.5 / 5.0"} in detail["rows"]
     assert {"指标": "审计意见", "数值": "5/5", "得分": "5.0 / 5.0"} in detail["rows"]
     assert len(detail["rows"]) == 5
+
+
+def test_module_detail_equity_fallback_includes_top_shareholder_name():
+    company = sample_company()
+    company["module_details"]["equity"]["evidence"] = []
+    company["equity"]["topShareholderName"] = "深圳市地铁集团有限公司"
+    company["equity"]["topShareholderRatio"] = 27.18
+
+    detail = module_detail(company, "equity")
+
+    assert {"指标": "第一大股东", "数值": "深圳市地铁集团有限公司"} in detail["rows"]
+    assert {"指标": "第一大股东持股", "数值": "27.18%"} in detail["rows"]
 
 
 def test_module_detail_rejects_unknown_module():

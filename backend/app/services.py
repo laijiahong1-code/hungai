@@ -7,6 +7,11 @@ from typing import Iterable
 from .data import BACKEND_ROOT, PROVINCE_ALIASES, default_database, load_company_records
 from .import_sources import latest_audit_by_stock, latest_roe_by_stock
 from .scoring import get_scoring_result
+from .top_shareholders import (
+    TOP_SHAREHOLDER_COLLECTION,
+    apply_top_shareholder_to_equity,
+    load_default_top_shareholder_map,
+)
 
 
 SCORE_COLLECTION = "company_scores"
@@ -166,7 +171,10 @@ def _public_company(record: dict) -> dict:
     modules = scoring["modules"]
     score = scoring["totalScore"]
     financials = record.get("financials", {})
-    equity = record.get("equity", {})
+    equity = apply_top_shareholder_to_equity(
+        record.get("equity", {}),
+        _top_shareholder_supplements_by_stock().get(str(record.get("stock_code", ""))),
+    )
     policy = record.get("policy", {})
     positive_reasons = policy.get("positive_reasons", [])
     risk_reasons = policy.get("risk_reasons", [])
@@ -210,7 +218,11 @@ def _public_company(record: dict) -> dict:
             "cash_flow": financials.get("cash_flow", 0),
         },
         "equity": {
+            "topShareholderName": equity.get("top_shareholder_name", ""),
             "topShareholderRatio": equity.get("top_shareholder_ratio", 0),
+            "topShareholderDate": equity.get("top_shareholder_date", ""),
+            "topShareholderShares": equity.get("top_shareholder_shares"),
+            "topShareholderShareClass": equity.get("top_shareholder_share_class", ""),
             "pledgeRatio": equity.get("pledge_ratio", 0),
             "auditOpinion": equity.get("audit_opinion", ""),
             "auditAccountingDate": equity.get("audit_accounting_date", ""),
@@ -219,7 +231,11 @@ def _public_company(record: dict) -> dict:
             "domesticAuditFirm": equity.get("domestic_audit_firm", ""),
             "overseasAuditFirm": equity.get("overseas_audit_firm", ""),
             "overdueDebt": equity.get("overdue_debt", ""),
+            "top_shareholder_name": equity.get("top_shareholder_name", ""),
             "top_shareholder_ratio": equity.get("top_shareholder_ratio", 0),
+            "top_shareholder_date": equity.get("top_shareholder_date", ""),
+            "top_shareholder_shares": equity.get("top_shareholder_shares"),
+            "top_shareholder_share_class": equity.get("top_shareholder_share_class", ""),
             "pledge_ratio": equity.get("pledge_ratio", 0),
             "audit_opinion": equity.get("audit_opinion", ""),
             "audit_accounting_date": equity.get("audit_accounting_date", ""),
@@ -247,6 +263,46 @@ def _audit_supplements_by_stock() -> dict[str, dict[str, str]]:
 @lru_cache(maxsize=1)
 def _roe_supplements_by_stock() -> dict[str, dict[str, object]]:
     return latest_roe_by_stock(BACKEND_ROOT)
+
+
+@lru_cache(maxsize=1)
+def _top_shareholder_supplements_by_stock() -> dict[str, dict[str, object]]:
+    return load_default_top_shareholder_map()
+
+
+def _top_shareholder_from_database(stock_code: str) -> dict[str, object] | None:
+    try:
+        database = default_database()
+        if not hasattr(database, "has_collection") or not database.has_collection(
+            TOP_SHAREHOLDER_COLLECTION
+        ):
+            return None
+        if hasattr(database, "find_one"):
+            return database.find_one(TOP_SHAREHOLDER_COLLECTION, "stock_code", stock_code)
+        if hasattr(database, "find_query"):
+            rows = database.find_query(
+                TOP_SHAREHOLDER_COLLECTION,
+                {"stock_code": stock_code},
+                limit=1,
+            )
+            return rows[0] if rows else None
+    except Exception:
+        return None
+    return None
+
+
+def _apply_top_shareholder_supplement(detail: dict) -> dict:
+    stock_code = str(detail.get("stock_code") or detail.get("code") or "")
+    shareholder = _top_shareholder_from_database(stock_code)
+    if shareholder is None:
+        shareholder = _top_shareholder_supplements_by_stock().get(stock_code)
+    if not shareholder:
+        return detail
+    detail["equity"] = apply_top_shareholder_to_equity(
+        detail.get("equity", {}),
+        shareholder,
+    )
+    return detail
 
 
 def _apply_audit_supplement(detail: dict) -> dict:
@@ -285,7 +341,9 @@ def _apply_roe_supplement(detail: dict) -> dict:
 
 
 def _apply_detail_supplements(detail: dict) -> dict:
-    return _apply_audit_supplement(_apply_roe_supplement(detail))
+    detail = _apply_top_shareholder_supplement(detail)
+    detail = _apply_roe_supplement(detail)
+    return _apply_audit_supplement(detail)
 
 
 def build_company_score_documents(records: Iterable[dict]) -> list[dict]:

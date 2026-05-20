@@ -189,7 +189,7 @@ class MongoDatabase:
         return self.database.get_collection(collection)
 
     def _ensure_stock_code_index(self, collection: str) -> None:
-        if collection in {"companies", "financials", "equity", "policies"}:
+        if collection in {"companies", "financials", "equity", "policies", "top_shareholders"}:
             self._collection(collection).create_index("stock_code")
 
     def _ensure_indexes(self, collection: str) -> None:

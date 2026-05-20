@@ -281,6 +281,7 @@ def _module_rows(company: dict, module_key: str) -> list[dict]:
     if module_key == "equity":
         equity = company.get("equity", {})
         return [
+            {"指标": "第一大股东", "数值": display_value(equity.get("topShareholderName", ""))},
             {"指标": "第一大股东持股", "数值": f"{equity.get('topShareholderRatio', 0)}%"},
             {"指标": "股权质押率", "数值": f"{equity.get('pledgeRatio', 0)}%"},
             {"指标": "审计意见", "数值": display_value(equity.get("auditOpinion", ""))},

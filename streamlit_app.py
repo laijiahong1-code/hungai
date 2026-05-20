@@ -312,6 +312,11 @@ def metric_card_rows(title: str, payload: dict) -> list[tuple[str, str, Any]]:
             ("ROE", *percent_value("roe")),
         ]
     return [
+        (
+            "第一大股东",
+            report_value(payload.get("topShareholderName", "")),
+            payload.get("topShareholderName", ""),
+        ),
         ("第一大股东持股", *percent_value("topShareholderRatio")),
         ("股权质押率", *percent_value("pledgeRatio")),
         ("审计意见", report_value(payload.get("auditOpinion", "")), payload.get("auditOpinion", "")),

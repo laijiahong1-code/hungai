@@ -144,3 +144,50 @@ def test_company_detail_supplements_materialized_audit_fields(monkeypatch):
     assert detail["equity"]["auditOpinion"] == "标准无保留意见"
     assert detail["equity"]["auditDate"] == "2026-03-20"
     assert detail["equity"]["domesticAuditFirm"] == "样本会计师事务所"
+
+
+def test_company_detail_supplements_materialized_top_shareholder_fields(monkeypatch):
+    docs = services.build_company_score_documents([sample_record()])
+    docs[0]["equity"]["topShareholderRatio"] = 40.0
+    docs[0]["equity"]["top_shareholder_ratio"] = 40.0
+
+    top_shareholder = {
+        "stock_code": "600001",
+        "top_shareholder_name": "江西省国有资本运营控股集团有限公司",
+        "top_shareholder_ratio": 52.36,
+        "top_shareholder_date": "2025-03-31",
+        "top_shareholder_shares": 123456789.0,
+        "top_shareholder_rank": 1,
+        "top_shareholder_share_class": "A股流通股",
+    }
+
+    class FakeDatabase:
+        def has_collection(self, collection):
+            return collection in {"company_scores", "top_shareholders"}
+
+        def find_query(self, collection, query=None, sort=None, limit=0, projection=None):
+            if collection == "company_scores":
+                return docs[:limit] if limit else docs
+            if collection == "top_shareholders":
+                return [top_shareholder]
+            raise AssertionError(collection)
+
+        def find_one(self, collection, key, value):
+            assert collection == "top_shareholders"
+            assert key == "stock_code"
+            assert value == "600001"
+            return top_shareholder
+
+        def count_documents(self, collection, query=None):
+            return 0
+
+        def distinct(self, collection, key, query=None):
+            return ["江西省"]
+
+    monkeypatch.setattr(services, "default_database", lambda: FakeDatabase())
+
+    detail = services.get_company_detail("600001")
+
+    assert detail["equity"]["topShareholderRatio"] == 52.36
+    assert detail["equity"]["topShareholderName"] == "江西省国有资本运营控股集团有限公司"
+    assert detail["equity"]["top_shareholder_date"] == "2025-03-31"
