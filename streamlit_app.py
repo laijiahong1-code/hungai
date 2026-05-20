@@ -6,6 +6,7 @@ from typing import Any
 import streamlit as st
 
 from backend.app.data import get_setting
+from backend.app.mixed_status import load_status_dashboard
 from backend.app.services import (
     get_all_provinces,
     get_company_detail,
@@ -60,6 +61,11 @@ def cached_company_detail(code: str) -> dict:
 @st.cache_data(ttl=120, show_spinner=False)
 def cached_search(query: str) -> dict:
     return search_entities(query)
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def cached_mixed_status_dashboard() -> dict[str, Any]:
+    return load_status_dashboard()
 
 
 def main() -> None:
@@ -965,6 +971,310 @@ def inject_css() -> None:
           font-size: 24px;
           margin-bottom: 6px;
         }
+        .mixed-status-section {
+          margin-top: 64px;
+          padding-top: 8px;
+        }
+        .mixed-status-head {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) minmax(220px, 300px);
+          gap: 22px;
+          align-items: end;
+          margin-bottom: 18px;
+        }
+        .mixed-status-copy {
+          max-width: 760px;
+          color: #4d5a61;
+          font-size: 14px;
+          line-height: 1.8;
+          margin-top: -12px;
+        }
+        .mixed-threshold-card {
+          border-left: 4px solid var(--accent);
+          background: rgba(255, 255, 255, 0.78);
+          border-radius: 0 16px 16px 0;
+          padding: 15px 18px;
+          box-shadow: 0 14px 32px rgba(16, 24, 32, 0.07);
+        }
+        .mixed-threshold-card span {
+          display: block;
+          color: var(--muted);
+          font-size: 12px;
+          font-weight: 700;
+        }
+        .mixed-threshold-card strong {
+          display: block;
+          font-family: "Noto Serif SC", serif;
+          font-size: 24px;
+          margin-top: 5px;
+        }
+        .mixed-status-stats {
+          display: grid;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+          gap: 12px;
+          margin-bottom: 14px;
+        }
+        .mixed-stat-card {
+          border: 1px solid var(--line);
+          background: rgba(255, 255, 255, 0.82);
+          border-radius: 16px;
+          padding: 16px 18px;
+          min-height: 104px;
+          box-shadow: 0 14px 30px rgba(16, 24, 32, 0.06);
+        }
+        .mixed-stat-card span,
+        .mixed-stat-card em {
+          display: block;
+          color: var(--muted);
+          font-size: 12px;
+          font-style: normal;
+          line-height: 1.5;
+        }
+        .mixed-stat-card strong {
+          display: block;
+          font-family: "Noto Serif SC", serif;
+          font-size: 30px;
+          line-height: 1.15;
+          margin: 9px 0 6px 0;
+          color: var(--ink);
+        }
+        .mixed-status-grid {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 16px;
+          align-items: stretch;
+        }
+        .mixed-chart-card {
+          border: 1px solid var(--line);
+          background: rgba(255, 255, 255, 0.86);
+          border-radius: 18px;
+          padding: 20px;
+          min-height: 278px;
+          box-shadow: 0 16px 36px rgba(16, 24, 32, 0.07);
+          overflow: hidden;
+        }
+        .mixed-chart-card-focus {
+          background:
+            linear-gradient(90deg, rgba(16, 24, 32, 0.035) 1px, transparent 1px),
+            linear-gradient(180deg, rgba(16, 24, 32, 0.03) 1px, transparent 1px),
+            rgba(255, 255, 255, 0.88);
+          background-size: 24px 24px, 24px 24px, auto;
+        }
+        .mixed-card-title {
+          font-family: "Noto Serif SC", serif;
+          font-size: 21px;
+          margin-bottom: 14px;
+        }
+        .mixed-donut-wrap {
+          display: grid;
+          grid-template-columns: 170px minmax(0, 1fr);
+          gap: 22px;
+          align-items: center;
+        }
+        .mixed-donut {
+          width: 170px;
+          aspect-ratio: 1;
+          border-radius: 999px;
+          display: grid;
+          place-items: center;
+          box-shadow: inset 0 0 0 1px rgba(16, 24, 32, 0.08), 0 18px 36px rgba(16, 24, 32, 0.10);
+        }
+        .mixed-donut > div {
+          width: 94px;
+          aspect-ratio: 1;
+          border-radius: 999px;
+          display: grid;
+          place-items: center;
+          align-content: center;
+          background: #fffdfa;
+          color: var(--ink);
+          box-shadow: 0 0 0 1px rgba(16, 24, 32, 0.08);
+        }
+        .mixed-donut strong {
+          font-family: "Noto Serif SC", serif;
+          font-size: 25px;
+          line-height: 1;
+        }
+        .mixed-donut span {
+          color: var(--muted);
+          font-size: 11px;
+          margin-top: 4px;
+        }
+        .mixed-status-legend {
+          display: grid;
+          gap: 10px;
+        }
+        .mixed-legend-row {
+          display: grid;
+          grid-template-columns: 12px minmax(0, 1fr) auto;
+          gap: 9px;
+          align-items: center;
+          border-bottom: 1px solid var(--line);
+          padding-bottom: 9px;
+          color: #344054;
+          font-size: 13px;
+        }
+        .mixed-legend-row strong {
+          color: var(--ink);
+          font-size: 12px;
+        }
+        .mixed-dot {
+          width: 10px;
+          height: 10px;
+          border-radius: 999px;
+        }
+        .mixed-trend-chart svg {
+          width: 100%;
+          height: auto;
+          display: block;
+        }
+        .mixed-grid line {
+          stroke: rgba(16, 24, 32, 0.10);
+          stroke-dasharray: 3 5;
+        }
+        .mixed-grid text,
+        .mixed-year-axis text {
+          fill: var(--muted);
+          font-size: 10px;
+        }
+        .mixed-year-axis text {
+          text-anchor: middle;
+        }
+        .mixed-series polyline {
+          fill: none;
+          stroke: var(--series-color);
+          stroke-width: 3.5;
+          stroke-linecap: round;
+          stroke-linejoin: round;
+        }
+        .mixed-series circle {
+          fill: #fffdfa;
+          stroke: var(--series-color);
+          stroke-width: 3;
+        }
+        .mixed-mini-legend,
+        .mixed-hist-notes {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 10px 14px;
+          align-items: center;
+          margin-top: 8px;
+          color: var(--muted);
+          font-size: 12px;
+        }
+        .mixed-mini-legend span {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+        }
+        .mixed-mini-legend i {
+          width: 20px;
+          height: 3px;
+          border-radius: 999px;
+        }
+        .mixed-histogram {
+          display: grid;
+          gap: 12px;
+        }
+        .mixed-hist-bars {
+          height: 168px;
+          display: flex;
+          align-items: end;
+          gap: 6px;
+          padding: 8px 0 20px 0;
+          border-bottom: 1px solid var(--line);
+        }
+        .mixed-hist-bar {
+          position: relative;
+          flex: 1;
+          min-width: 0;
+          background: linear-gradient(180deg, rgba(106, 174, 214, 0.92), rgba(46, 134, 171, 0.78));
+          border-radius: 5px 5px 0 0;
+          box-shadow: inset 0 1px rgba(255, 255, 255, 0.45);
+        }
+        .mixed-hist-bar span {
+          position: absolute;
+          left: 50%;
+          bottom: calc(100% + 4px);
+          transform: translateX(-50%);
+          color: var(--muted);
+          font-size: 10px;
+          white-space: nowrap;
+        }
+        .mixed-hist-bar em {
+          position: absolute;
+          left: 50%;
+          bottom: -20px;
+          transform: translateX(-50%) rotate(-26deg);
+          transform-origin: top center;
+          color: var(--muted);
+          font-size: 9px;
+          font-style: normal;
+          white-space: nowrap;
+        }
+        .mixed-metrics-chart {
+          min-height: 206px;
+          display: grid;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+          gap: 12px;
+          align-items: end;
+        }
+        .mixed-metric-group {
+          display: grid;
+          grid-template-rows: 150px auto;
+          gap: 9px;
+          min-width: 0;
+        }
+        .mixed-metric-bars {
+          display: flex;
+          align-items: end;
+          justify-content: center;
+          gap: 5px;
+          border-bottom: 1px solid var(--line);
+          padding: 0 4px;
+        }
+        .mixed-metric-bar {
+          width: 22%;
+          min-width: 9px;
+          border-radius: 4px 4px 0 0;
+          position: relative;
+          box-shadow: inset 0 1px rgba(255, 255, 255, 0.46);
+        }
+        .mixed-metric-bar span {
+          position: absolute;
+          left: 50%;
+          bottom: calc(100% + 5px);
+          transform: translateX(-50%);
+          background: rgba(16, 24, 32, 0.88);
+          color: white;
+          border-radius: 6px;
+          padding: 4px 6px;
+          font-size: 10px;
+          white-space: nowrap;
+          opacity: 0;
+          pointer-events: none;
+          transition: opacity 160ms ease;
+        }
+        .mixed-metric-bar:hover span {
+          opacity: 1;
+        }
+        .mixed-metric-label {
+          color: #344054;
+          font-size: 11px;
+          line-height: 1.35;
+          text-align: center;
+          min-height: 31px;
+          overflow-wrap: anywhere;
+        }
+        .mixed-empty {
+          min-height: 180px;
+          display: grid;
+          place-items: center;
+          color: var(--muted);
+          border: 1px dashed var(--line);
+          border-radius: 14px;
+          background: rgba(255, 255, 255, 0.52);
+        }
         div[data-testid="stButton"] > button {
           border-radius: 999px;
           border: 1px solid rgba(16, 24, 32, 0.16);
@@ -998,11 +1308,25 @@ def inject_css() -> None:
             display: inline-flex;
             margin-bottom: 18px;
           }
-          .rule-hero-grid, .report-hero-grid, .module-hero-grid, .evidence-grid, .module-detail-grid, .level-grid {
+          .rule-hero-grid, .report-hero-grid, .module-hero-grid, .evidence-grid, .module-detail-grid, .level-grid,
+          .mixed-status-head, .mixed-status-grid, .mixed-donut-wrap {
             grid-template-columns: 1fr;
           }
-          .report-stats, .rule-stat-row, .normalization-flow {
+          .report-stats, .rule-stat-row, .normalization-flow, .mixed-status-stats, .mixed-metrics-chart {
             grid-template-columns: 1fr;
+          }
+          .mixed-chart-card {
+            min-height: auto;
+          }
+          .mixed-donut {
+            margin: 0 auto;
+          }
+          .mixed-hist-bars {
+            gap: 4px;
+          }
+          .mixed-hist-bar span,
+          .mixed-hist-bar em {
+            display: none;
           }
         }
         </style>
@@ -1135,6 +1459,7 @@ def render_home() -> None:
 
     if not top_companies:
         st.info("当前数据库里没有可展示公司。")
+        render_mixed_status_dashboard()
         return
 
     st.markdown('<div class="section-kicker">Ranking · Top 10</div>', unsafe_allow_html=True)
@@ -1166,6 +1491,225 @@ def render_home() -> None:
     st.markdown('<div class="section-kicker">By Province</div>', unsafe_allow_html=True)
     st.markdown('<div class="section-title">按省份浏览</div>', unsafe_allow_html=True)
     render_province_buttons(provinces)
+    render_mixed_status_dashboard()
+
+
+def render_mixed_status_dashboard() -> None:
+    try:
+        dashboard = cached_mixed_status_dashboard()
+    except (FileNotFoundError, ValueError, OSError) as exc:
+        st.info(f"混改状态观察数据暂未就绪：{h(exc)}")
+        return
+    st.markdown(mixed_status_dashboard_html(dashboard), unsafe_allow_html=True)
+
+
+def mixed_status_dashboard_html(dashboard: dict[str, Any]) -> str:
+    slices = list(dashboard.get("status_slices", []))
+    total = int(dashboard.get("total", 0))
+    median = float(dashboard.get("mixed_score_median", 0))
+    threshold = float(dashboard.get("completion_threshold", 0))
+    return compact_html(f"""
+    <section class="mixed-status-section">
+      <div class="section-kicker">Mixed Reform Status</div>
+      <div class="mixed-status-head">
+        <div>
+          <div class="section-title">国企混改状态观察</div>
+          <div class="mixed-status-copy">
+            基于 {total} 家国有上市公司最新股权结构数据，观察三阶段混改分布、年度状态迁移与已混改公司的得分结构。
+          </div>
+        </div>
+        <div class="mixed-threshold-card">
+          <span>完成阈值 {threshold:.2f}</span>
+          <strong>中位数 {median:.2f}</strong>
+        </div>
+      </div>
+      <div class="mixed-status-stats">{mixed_status_stat_cards_html(slices, total)}</div>
+      <div class="mixed-status-grid">
+        <div class="mixed-chart-card mixed-chart-card-focus">
+          <div class="mixed-card-title">三阶段状态分布</div>
+          <div class="mixed-donut-wrap">
+            <div class="mixed-donut" style="{h(mixed_donut_style(slices))}">
+              <div><strong>{total}</strong><span>家公司</span></div>
+            </div>
+            <div class="mixed-status-legend">{mixed_status_legend_html(slices)}</div>
+          </div>
+        </div>
+        <div class="mixed-chart-card">
+          <div class="mixed-card-title">年度变化趋势</div>
+          {mixed_annual_trend_svg(dashboard.get("annual_trends", []), slices)}
+        </div>
+        <div class="mixed-chart-card">
+          <div class="mixed-card-title">已混改公司综合得分分布</div>
+          {mixed_score_histogram_html(dashboard.get("score_histogram", []), threshold, median)}
+        </div>
+        <div class="mixed-chart-card">
+          <div class="mixed-card-title">三阶段核心指标均值对比</div>
+          {mixed_metric_averages_html(dashboard.get("metric_averages", []))}
+        </div>
+      </div>
+    </section>
+    """)
+
+
+def compact_html(html_text: str) -> str:
+    return "".join(line.strip() for line in html_text.splitlines())
+
+
+def mixed_status_stat_cards_html(slices: list[dict[str, Any]], total: int) -> str:
+    cards = [
+        f"""
+        <div class="mixed-stat-card">
+          <span>样本公司</span>
+          <strong>{total}</strong>
+          <em>最新一期入库样本</em>
+        </div>
+        """
+    ]
+    for item in slices:
+        cards.append(
+            f"""
+            <div class="mixed-stat-card">
+              <span>{h(item.get("label", ""))}</span>
+              <strong>{h(item.get("percent_label", ""))}</strong>
+              <em>{h(item.get("count", 0))} 家 · {h(item.get("percent_label", ""))}</em>
+            </div>
+            """
+        )
+    return "".join(cards)
+
+
+def mixed_donut_style(slices: list[dict[str, Any]]) -> str:
+    segments = []
+    cursor = 0.0
+    for item in slices:
+        percent = float(item.get("percent", 0))
+        start = cursor
+        end = min(100.0, cursor + percent)
+        segments.append(f"{item.get('color', '#98A2B3')} {start:.1f}% {end:.1f}%")
+        cursor = end
+    return f"background: conic-gradient({', '.join(segments)});"
+
+
+def mixed_status_legend_html(slices: list[dict[str, Any]]) -> str:
+    rows = []
+    for item in slices:
+        rows.append(
+            f"""
+            <div class="mixed-legend-row">
+              <span class="mixed-dot" style="background:{h(item.get("color", "#98A2B3"))};"></span>
+              <span>{h(item.get("label", ""))}</span>
+              <strong>{h(item.get("count", 0))} 家 · {h(item.get("percent_label", ""))}</strong>
+            </div>
+            """
+        )
+    return "".join(rows)
+
+
+def mixed_annual_trend_svg(trends: list[dict[str, Any]], slices: list[dict[str, Any]]) -> str:
+    if not trends:
+        return '<div class="mixed-empty">暂无年度趋势数据</div>'
+    status_colors = {item.get("label"): item.get("color", "#98A2B3") for item in slices}
+    width, height = 360, 178
+    left, right, top, bottom = 34, 18, 18, 38
+    plot_width = width - left - right
+    plot_height = height - top - bottom
+    years = [int(item["year"]) for item in trends]
+
+    def xy(index: int, value: float) -> tuple[float, float]:
+        x = left + (plot_width * index / max(1, len(trends) - 1))
+        y = top + plot_height - (max(0.0, min(100.0, value)) / 100 * plot_height)
+        return x, y
+
+    grid = []
+    for value in [0, 25, 50, 75, 100]:
+        y = top + plot_height - (value / 100 * plot_height)
+        grid.append(f'<line x1="{left}" y1="{y:.1f}" x2="{width - right}" y2="{y:.1f}" />')
+        grid.append(f'<text x="4" y="{y + 4:.1f}">{value}</text>')
+    year_labels = []
+    for index, year in enumerate(years):
+        x, _ = xy(index, 0)
+        year_labels.append(f'<text class="mixed-year-label" x="{x:.1f}" y="{height - 12}">{year}</text>')
+
+    lines = []
+    for status in ["尚未发生混改", "正在进行混改", "已经完成混改"]:
+        points = [xy(index, float(row[status])) for index, row in enumerate(trends)]
+        point_text = " ".join(f"{x:.1f},{y:.1f}" for x, y in points)
+        color = status_colors.get(status, "#98A2B3")
+        circles = "".join(
+            f'<circle cx="{x:.1f}" cy="{y:.1f}" r="4.2"><title>{h(status)} {trends[index]["year"]}: {float(trends[index][status]):.1f}%</title></circle>'
+            for index, (x, y) in enumerate(points)
+        )
+        lines.append(f'<g style="--series-color:{h(color)}"><polyline points="{point_text}" />{circles}</g>')
+    return (
+        '<div class="mixed-trend-chart">'
+        f'<svg viewBox="0 0 {width} {height}" role="img" aria-label="三阶段状态年度变化趋势">'
+        f'<g class="mixed-grid">{"".join(grid)}</g>'
+        f'<g class="mixed-year-axis">{"".join(year_labels)}</g>'
+        f'<g class="mixed-series">{"".join(lines)}</g>'
+        "</svg>"
+        '<div class="mixed-mini-legend">'
+        f'{mixed_inline_legend_item("尚未发生混改", status_colors.get("尚未发生混改", "#98A2B3"))}'
+        f'{mixed_inline_legend_item("正在进行混改", status_colors.get("正在进行混改", "#98A2B3"))}'
+        f'{mixed_inline_legend_item("已经完成混改", status_colors.get("已经完成混改", "#98A2B3"))}'
+        "</div></div>"
+    )
+
+
+def mixed_inline_legend_item(label: str, color: str) -> str:
+    return f'<span><i style="background:{h(color)};"></i>{h(label)}</span>'
+
+
+def mixed_score_histogram_html(histogram: list[dict[str, Any]], threshold: float, median: float) -> str:
+    if not histogram:
+        return '<div class="mixed-empty">暂无得分分布数据</div>'
+    bars = []
+    max_count = max(int(item.get("count", 0)) for item in histogram) or 1
+    for item in histogram:
+        height = max(4, float(item.get("height", 0)))
+        bars.append(
+            f"""
+            <div class="mixed-hist-bar" style="height:{height:.1f}%;">
+              <span>{h(item.get("count", 0))}</span>
+              <em>{h(item.get("label", ""))}</em>
+            </div>
+            """
+        )
+    return f"""
+    <div class="mixed-histogram" style="--max-count:{max_count};">
+      <div class="mixed-hist-bars">{"".join(bars)}</div>
+      <div class="mixed-hist-notes">
+        <span>完成阈值 {threshold:.2f}</span>
+        <span>中位数 {median:.2f}</span>
+      </div>
+    </div>
+    """
+
+
+def mixed_metric_averages_html(rows: list[dict[str, Any]]) -> str:
+    if not rows:
+        return '<div class="mixed-empty">暂无指标均值数据</div>'
+    metric_labels = [metric["label"] for metric in rows[0].get("metrics", [])]
+    groups = []
+    for metric_index, label in enumerate(metric_labels):
+        bars = []
+        for row in rows:
+            metric = row["metrics"][metric_index]
+            bars.append(
+                f"""
+                <div class="mixed-metric-bar" style="height:{max(4, float(metric.get("height", 0))):.1f}%;background:{h(row.get("color", "#98A2B3"))};">
+                  <span>{h(row.get("status", ""))}: {float(metric.get("value", 0)):.2f}</span>
+                </div>
+                """
+            )
+        groups.append(
+            f"""
+            <div class="mixed-metric-group">
+              <div class="mixed-metric-bars">{"".join(bars)}</div>
+              <div class="mixed-metric-label">{h(label)}</div>
+            </div>
+            """
+        )
+    return f'<div class="mixed-metrics-chart">{"".join(groups)}</div>'
 
 
 def render_hot_provinces(provinces: list[str]) -> None:
