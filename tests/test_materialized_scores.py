@@ -191,3 +191,58 @@ def test_company_detail_supplements_materialized_top_shareholder_fields(monkeypa
     assert detail["equity"]["topShareholderRatio"] == 52.36
     assert detail["equity"]["topShareholderName"] == "江西省国有资本运营控股集团有限公司"
     assert detail["equity"]["top_shareholder_date"] == "2025-03-31"
+
+
+def test_company_detail_seeds_top_shareholder_collection_when_mongo_missing(monkeypatch):
+    docs = services.build_company_score_documents([sample_record()])
+    top_shareholder = {
+        "stock_code": "600001",
+        "top_shareholder_name": "江西省国有资本运营控股集团有限公司",
+        "top_shareholder_ratio": 52.36,
+        "top_shareholder_date": "2025-03-31",
+        "top_shareholder_shares": 123456789.0,
+        "top_shareholder_rank": 1,
+        "top_shareholder_share_class": "A股流通股",
+    }
+
+    class FakeDatabase:
+        def __init__(self):
+            self.collections = {"company_scores": docs}
+            self.uploaded_count = 0
+
+        def has_collection(self, collection):
+            return collection in self.collections
+
+        def replace_all(self, collection, records):
+            self.collections[collection] = records
+            self.uploaded_count = len(records)
+
+        def find_query(self, collection, query=None, sort=None, limit=0, projection=None):
+            records = self.collections[collection]
+            return records[:limit] if limit else records
+
+        def find_one(self, collection, key, value):
+            for record in self.collections.get(collection, []):
+                if record.get(key) == value:
+                    return record
+            return None
+
+        def count_documents(self, collection, query=None):
+            return 0
+
+        def distinct(self, collection, key, query=None):
+            return ["江西省"]
+
+    fake_database = FakeDatabase()
+    monkeypatch.setattr(services, "default_database", lambda: fake_database)
+    monkeypatch.setattr(
+        services,
+        "_top_shareholder_supplements_by_stock",
+        lambda: {"600001": top_shareholder},
+    )
+
+    detail = services.get_company_detail("600001")
+
+    assert fake_database.uploaded_count == 1
+    assert detail["equity"]["topShareholderRatio"] == 52.36
+    assert detail["equity"]["topShareholderName"] == "江西省国有资本运营控股集团有限公司"

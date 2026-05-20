@@ -270,13 +270,27 @@ def _top_shareholder_supplements_by_stock() -> dict[str, dict[str, object]]:
     return load_default_top_shareholder_map()
 
 
+def _seed_top_shareholder_collection(database: object) -> bool:
+    if not hasattr(database, "replace_all"):
+        return False
+    records = list(_top_shareholder_supplements_by_stock().values())
+    if not records:
+        return False
+    try:
+        database.replace_all(TOP_SHAREHOLDER_COLLECTION, records)
+    except Exception:
+        return False
+    return True
+
+
 def _top_shareholder_from_database(stock_code: str) -> dict[str, object] | None:
     try:
         database = default_database()
-        if not hasattr(database, "has_collection") or not database.has_collection(
-            TOP_SHAREHOLDER_COLLECTION
-        ):
+        if not hasattr(database, "has_collection"):
             return None
+        if not database.has_collection(TOP_SHAREHOLDER_COLLECTION):
+            if not _seed_top_shareholder_collection(database):
+                return None
         if hasattr(database, "find_one"):
             return database.find_one(TOP_SHAREHOLDER_COLLECTION, "stock_code", stock_code)
         if hasattr(database, "find_query"):
