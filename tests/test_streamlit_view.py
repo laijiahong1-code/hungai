@@ -177,6 +177,64 @@ def test_data_source_label_uses_streamlit_secret_mongodb_uri(monkeypatch):
     assert streamlit_app.data_source_label() == "MongoDB 云端"
 
 
+def test_reform_status_cards_html_contains_company_profile_labels():
+    company = sample_company()
+    company["reformProfile"] = {
+        "isStateOwned": True,
+        "stateOwnedLabel": "是",
+        "mixedStatusLabel": "正在进行混改",
+        "source": "status_csv",
+    }
+
+    html = streamlit_app.reform_status_cards_html(company)
+
+    assert 'class="reform-status-stack"' in html
+    assert 'class="reform-info-card status-progress"' in html
+    assert "企业状态" in html
+    assert "混改状态" in html
+    assert ">国企<" in html
+    assert "正在进行混改" in html
+    assert "是否国企" not in html
+    assert "是否混改" not in html
+
+
+def test_reform_status_cards_html_maps_private_company_copy():
+    company = sample_company()
+    company["reformProfile"] = {
+        "isStateOwned": False,
+        "stateOwnedLabel": "否",
+        "mixedStatusLabel": "潜在混改企业",
+        "source": "private_score_threshold",
+    }
+
+    html = streamlit_app.reform_status_cards_html(company)
+
+    assert 'class="reform-info-card status-potential"' in html
+    assert "企业状态" in html
+    assert ">非国企<" in html
+    assert "混改状态" in html
+    assert "潜在混改企业" in html
+
+
+def test_hero_signal_panel_groups_status_cards_with_score_card():
+    company = sample_company()
+    company["reformProfile"] = {
+        "isStateOwned": True,
+        "stateOwnedLabel": "是",
+        "mixedStatusLabel": "正在进行混改",
+        "source": "status_csv",
+    }
+
+    html = streamlit_app.hero_signal_panel_html(company, 87.7, score_band(87.7))
+
+    assert 'class="hero-signal-panel"' in html
+    assert 'class="reform-status-stack"' in html
+    assert 'class="score-panel report-score-panel"' in html
+    assert "企业状态" in html
+    assert "混改状态" in html
+    assert "87.7" in html
+
+
 def test_module_detail_builds_equity_audit_rows():
     detail = module_detail(sample_company(), "equity")
 

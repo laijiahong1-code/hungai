@@ -588,9 +588,9 @@ def inject_css() -> None:
         }
         .report-hero-grid {
           display: grid;
-          grid-template-columns: minmax(0, 1fr) 168px;
+          grid-template-columns: minmax(0, 1fr) minmax(382px, 432px);
           gap: 30px;
-          align-items: start;
+          align-items: stretch;
         }
         .report-label-row {
           display: flex;
@@ -649,6 +649,74 @@ def inject_css() -> None:
         .report-stat {
           border-top: 1px solid rgba(16, 24, 32, 0.15);
           padding-top: 12px;
+        }
+        .hero-signal-panel {
+          display: grid;
+          grid-template-columns: minmax(142px, 170px) 136px;
+          gap: 14px;
+          align-items: center;
+          align-self: center;
+          padding-top: 6px;
+        }
+        .reform-status-stack {
+          display: grid;
+          grid-template-columns: 1fr;
+          gap: 10px;
+          align-self: center;
+        }
+        .reform-info-card {
+          position: relative;
+          min-height: 92px;
+          padding: 12px 12px;
+          border: 1px solid rgba(16, 24, 32, 0.12);
+          border-radius: 14px;
+          background: rgba(255, 255, 255, 0.66);
+          box-shadow: 0 14px 34px rgba(16, 24, 32, 0.07);
+          overflow: hidden;
+        }
+        .reform-info-card::before {
+          content: "";
+          position: absolute;
+          inset: 0 auto 0 0;
+          width: 4px;
+          background: var(--accent);
+        }
+        .reform-info-card.state-private::before {
+          background: #667085;
+        }
+        .reform-info-card.status-potential::before,
+        .reform-info-card.status-progress::before {
+          background: #f3a53c;
+        }
+        .reform-info-card.status-complete::before {
+          background: #0f766e;
+        }
+        .reform-info-label {
+          color: var(--muted);
+          font-size: 11px;
+          font-weight: 800;
+          letter-spacing: 0;
+          text-transform: uppercase;
+        }
+        .reform-info-value {
+          margin-top: 8px;
+          color: var(--ink);
+          font-family: "Noto Serif SC", serif;
+          font-size: 17px;
+          line-height: 1.25;
+          font-weight: 700;
+          overflow-wrap: anywhere;
+        }
+        .reform-info-card.status-progress .reform-info-value,
+        .reform-info-card.status-potential .reform-info-value {
+          font-size: 16px;
+          line-height: 1.34;
+        }
+        .reform-info-sub {
+          margin-top: 8px;
+          color: #667085;
+          font-size: 11px;
+          font-weight: 700;
         }
         .score-panel {
           display: grid;
@@ -834,6 +902,17 @@ def inject_css() -> None:
           border-radius: 18px;
           padding: 18px;
           box-shadow: 0 18px 40px rgba(16, 24, 32, 0.08);
+        }
+        .report-score-panel {
+          min-height: 164px;
+          padding: 14px 12px;
+          align-content: center;
+          gap: 8px;
+        }
+        .report-score-panel .score-pill {
+          width: 84px;
+          height: 84px;
+          font-size: 27px;
         }
         .rule-weight-row + .rule-weight-row {
           margin-top: 15px;
@@ -1339,6 +1418,21 @@ def inject_css() -> None:
           .mixed-hist-bar span,
           .mixed-hist-bar em {
             display: none;
+          }
+          .hero-signal-panel {
+            grid-template-columns: minmax(142px, 170px) 136px;
+          }
+          .reform-status-stack {
+            grid-template-columns: 1fr;
+          }
+        }
+        @media (max-width: 520px) {
+          .hero-signal-panel {
+            grid-template-columns: 1fr;
+            padding-top: 0;
+          }
+          .reform-status-stack {
+            grid-template-columns: 1fr;
           }
         }
         </style>
@@ -1872,6 +1966,54 @@ def render_company_page() -> None:
     render_company_evidence(company)
 
 
+def reform_status_cards_html(company: dict) -> str:
+    profile = company.get("reformProfile") or {}
+    state_label = "国企" if profile.get("isStateOwned") else "非国企"
+    mixed_label = report_value(profile.get("mixedStatusLabel", ""))
+    state_class = "state-owned" if profile.get("isStateOwned") else "state-private"
+    mixed_class = reform_status_class(mixed_label)
+    state_subline = "State-owned" if profile.get("isStateOwned") else "Private"
+
+    return (
+        f'<div class="reform-status-stack">'
+        f'<div class="reform-info-card {h(state_class)}">'
+        f'<div class="reform-info-label">企业状态</div>'
+        f'<div class="reform-info-value">{h(state_label)}</div>'
+        f'<div class="reform-info-sub">{h(state_subline)}</div>'
+        f"</div>"
+        f'<div class="reform-info-card {h(mixed_class)}">'
+        f'<div class="reform-info-label">混改状态</div>'
+        f'<div class="reform-info-value">{h(mixed_label)}</div>'
+        f'<div class="reform-info-sub">Mixed reform</div>'
+        f"</div>"
+        f"</div>"
+    )
+
+
+def reform_status_class(label: str) -> str:
+    if label == "已经完成混改":
+        return "status-complete"
+    if label == "正在进行混改":
+        return "status-progress"
+    if label == "潜在混改企业":
+        return "status-potential"
+    return "status-none"
+
+
+def hero_signal_panel_html(company: dict, total_score: float, band: dict) -> str:
+    return (
+        f'<div class="hero-signal-panel">'
+        f"{reform_status_cards_html(company)}"
+        f'<div class="score-panel report-score-panel">'
+        f'<div class="meta">混改潜力总分</div>'
+        f'<div class="score-pill">{total_score:.1f}</div>'
+        f'<span class="status-badge {h(band["class"])}">{h(band["label"])}</span>'
+        f'<div class="meta" style="margin-top:8px;">满分 100 分</div>'
+        f"</div>"
+        f"</div>"
+    )
+
+
 def render_company_hero(company: dict) -> None:
     total_score = score(company)
     band = score_band(total_score)
@@ -1898,12 +2040,7 @@ def render_company_hero(company: dict) -> None:
                 <div class="report-stat"><div class="meta">所在地</div><div class="stat-value">{h(report_value(company.get('city'), company.get('province') or '暂未入库'))}</div></div>
               </div>
             </div>
-            <div class="score-panel">
-              <div class="meta">混改潜力总分</div>
-              <div class="score-pill">{total_score:.1f}</div>
-              <span class="status-badge {h(band['class'])}">{h(band['label'])}</span>
-              <div class="meta" style="margin-top:8px;">满分 100 分</div>
-            </div>
+            {hero_signal_panel_html(company, total_score, band)}
           </div>
         </section>
         """,

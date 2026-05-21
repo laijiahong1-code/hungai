@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -56,6 +57,68 @@ def load_status_dashboard(path: Path | None = None) -> dict[str, Any]:
         ),
         "annual_trends": ANNUAL_TRENDS,
     }
+
+
+@lru_cache(maxsize=1)
+def load_status_lookup(path: Path | None = None) -> dict[str, dict[str, Any]]:
+    data_path = Path(path) if path is not None else DEFAULT_STATUS_PATH
+    df = pd.read_csv(data_path, dtype={"Symbol": str})
+    require_dashboard_columns(df)
+
+    lookup: dict[str, dict[str, Any]] = {}
+    for _, row in df.iterrows():
+        stock_code = normalize_status_stock_code(row.get("Symbol"))
+        if not stock_code:
+            continue
+        lookup[stock_code] = {
+            "stock_code": stock_code,
+            "short_name": str(row.get("ShortName", "")).strip(),
+            "mixed_flag": int(row.get("MixedEquityStructureOrNOT", 0)),
+            "mixed_score": float(row.get("MixedOwnershipScore", 0)),
+            "reform_status": str(row.get("ReformStatus", "")).strip(),
+        }
+    return lookup
+
+
+def company_reform_profile(
+    stock_code: str,
+    total_score: object,
+    status_lookup: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    lookup = status_lookup if status_lookup is not None else load_status_lookup()
+    status_row = lookup.get(normalize_status_stock_code(stock_code))
+    if status_row is not None:
+        return {
+            "isStateOwned": True,
+            "stateOwnedLabel": "是",
+            "mixedStatusLabel": status_row.get("reform_status", "尚未发生混改"),
+            "source": "status_csv",
+        }
+
+    score = _safe_float(total_score)
+    return {
+        "isStateOwned": False,
+        "stateOwnedLabel": "否",
+        "mixedStatusLabel": "潜在混改企业" if score > 50 else "尚未发生混改",
+        "source": "private_score_threshold",
+    }
+
+
+def normalize_status_stock_code(value: object) -> str:
+    text = str(value if value is not None else "").strip()
+    if not text:
+        return ""
+    if text.endswith(".0"):
+        text = text[:-2]
+    digits = "".join(char for char in text if char.isdigit())
+    return digits.zfill(6) if digits else ""
+
+
+def _safe_float(value: object) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def require_dashboard_columns(df: pd.DataFrame) -> None:

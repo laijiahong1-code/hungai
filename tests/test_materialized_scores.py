@@ -193,6 +193,41 @@ def test_company_detail_supplements_materialized_top_shareholder_fields(monkeypa
     assert detail["equity"]["top_shareholder_date"] == "2025-03-31"
 
 
+def test_company_detail_supplements_materialized_reform_profile(monkeypatch):
+    docs = services.build_company_score_documents([sample_record()])
+    docs[0].pop("reformProfile", None)
+
+    class FakeDatabase:
+        def has_collection(self, collection):
+            return collection == "company_scores"
+
+        def find_query(self, collection, query=None, sort=None, limit=0, projection=None):
+            assert collection == "company_scores"
+            return docs[:limit] if limit else docs
+
+        def count_documents(self, collection, query=None):
+            return 0
+
+        def distinct(self, collection, key, query=None):
+            return ["江西省"]
+
+    monkeypatch.setattr(services, "default_database", lambda: FakeDatabase())
+    monkeypatch.setattr(
+        services,
+        "_reform_status_lookup_by_stock",
+        lambda: {"600001": {"reform_status": "正在进行混改"}},
+    )
+
+    detail = services.get_company_detail("600001")
+
+    assert detail["reformProfile"] == {
+        "isStateOwned": True,
+        "stateOwnedLabel": "是",
+        "mixedStatusLabel": "正在进行混改",
+        "source": "status_csv",
+    }
+
+
 def test_company_detail_seeds_top_shareholder_collection_when_mongo_missing(monkeypatch):
     docs = services.build_company_score_documents([sample_record()])
     top_shareholder = {

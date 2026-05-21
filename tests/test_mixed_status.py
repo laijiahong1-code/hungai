@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import pytest
 
-from backend.app.mixed_status import load_status_dashboard
+from backend.app.mixed_status import (
+    company_reform_profile,
+    load_status_dashboard,
+    load_status_lookup,
+)
 import streamlit_app
 
 
@@ -62,3 +66,34 @@ def test_mixed_status_dashboard_html_contains_expected_homepage_content():
     assert "780 家 · 43.1%" in html
     assert "172 家 · 9.5%" in html
     assert "完成阈值 85.14" in html
+
+
+def test_status_lookup_identifies_state_owned_company_reform_status():
+    lookup = load_status_lookup()
+
+    profile = company_reform_profile("600183", total_score=87.7, status_lookup=lookup)
+
+    assert profile["isStateOwned"] is True
+    assert profile["stateOwnedLabel"] == "是"
+    assert profile["mixedStatusLabel"] == "正在进行混改"
+    assert profile["source"] == "status_csv"
+
+
+def test_company_reform_profile_treats_missing_company_as_private_potential():
+    profile = company_reform_profile("300750", total_score=60.0, status_lookup={})
+
+    assert profile == {
+        "isStateOwned": False,
+        "stateOwnedLabel": "否",
+        "mixedStatusLabel": "潜在混改企业",
+        "source": "private_score_threshold",
+    }
+
+
+def test_company_reform_profile_private_threshold_is_strictly_above_50():
+    profile = company_reform_profile("300750", total_score=50.0, status_lookup={})
+
+    assert profile["isStateOwned"] is False
+    assert profile["stateOwnedLabel"] == "否"
+    assert profile["mixedStatusLabel"] == "尚未发生混改"
+    assert profile["source"] == "private_score_threshold"
