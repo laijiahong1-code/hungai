@@ -199,6 +199,7 @@ def _public_company(record: dict) -> dict:
         "modules": modules,
         "module_details": scoring["module_details"],
         "raw_scores": scoring["raw_scores"],
+        "governanceTrend": scoring.get("governanceTrend", []),
         "potentialLevel": scoring["potentialLevel"],
         "reformProfile": company_reform_profile(
             record.get("stock_code", ""),

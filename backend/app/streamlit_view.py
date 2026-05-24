@@ -255,8 +255,33 @@ def module_detail(company: dict, module_key: str) -> dict:
         "report_summary": _module_summary(meta["label"], current_score, band, meta["focus"]),
         "rows": _module_rows(company, module_key),
         "notes": _module_notes(company, module_key),
+        "governanceTrend": _governance_trend(company) if module_key == "equity" else [],
         "mixedDegreeProfile": company.get("mixedDegreeProfile", {}) if module_key == "mixed" else {},
     }
+
+
+def _governance_trend(company: dict) -> list[dict]:
+    trend = company.get("governanceTrend") or company.get("governance_trend") or []
+    rows = []
+    for item in trend:
+        try:
+            year = int(item.get("year"))
+            score = round(float(item.get("score", 0)), 1)
+        except (TypeError, ValueError, AttributeError):
+            continue
+        try:
+            raw_score = round(float(item.get("rawScore", item.get("raw_score", score / 4))), 2)
+        except (TypeError, ValueError):
+            raw_score = round(score / 4, 2)
+        rows.append(
+            {
+                "year": year,
+                "score": score,
+                "rawScore": raw_score,
+                "date": str(item.get("date", "")),
+            }
+        )
+    return sorted(rows, key=lambda row: row["year"])
 
 
 def _module_rows(company: dict, module_key: str) -> list[dict]:

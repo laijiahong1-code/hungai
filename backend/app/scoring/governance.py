@@ -9,6 +9,7 @@ from .models import Evidence, ModuleResult
 
 
 BASE_PARTS = ("企业股权评分", "企业股权评分")
+TREND_YEARS = {2023, 2024, 2025}
 
 
 def build_governance_scores(source_root: Path) -> dict[str, ModuleResult]:
@@ -38,6 +39,46 @@ def build_governance_scores(source_root: Path) -> dict[str, ModuleResult]:
         ]
         results[code] = ModuleResult("equity", round(raw, 2), evidence)
     return results
+
+
+def build_governance_trends(source_root: Path) -> dict[str, list[dict[str, Any]]]:
+    path = source_root.joinpath(*BASE_PARTS, "result", "企业股权最终评分.xlsx")
+    selected: dict[tuple[str, int], dict[str, Any]] = {}
+    for row in read_xlsx_rows(path):
+        code = stock_code(row.get("股票代码") or row.get("证券代码") or row.get("Stkcd"))
+        year = normalize_year(row.get("年份") or row.get("截止日期"))
+        raw_score = to_float(row.get("最终总分") or row.get("最终评分"))
+        if not code or year not in TREND_YEARS or raw_score is None:
+            continue
+        date_value = row.get("截止日期") or ""
+        date_text = trend_date_text(date_value)
+        candidate = {
+            "year": year,
+            "score": round(max(0.0, min(100.0, raw_score / 25.0 * 100.0)), 1),
+            "rawScore": round(float(raw_score), 2),
+            "date": date_text,
+            "_date_key": date_text,
+        }
+        key = (code, year)
+        current = selected.get(key)
+        if current is None or (candidate["_date_key"], candidate["rawScore"]) > (
+            current["_date_key"],
+            current["rawScore"],
+        ):
+            selected[key] = candidate
+
+    by_code: dict[str, list[dict[str, Any]]] = {}
+    for code, year in sorted(selected):
+        item = dict(selected[(code, year)])
+        item.pop("_date_key", None)
+        by_code.setdefault(code, []).append(item)
+    return by_code
+
+
+def trend_date_text(value: Any) -> str:
+    if hasattr(value, "strftime"):
+        return value.strftime("%Y-%m-%d")
+    return str(value or "").strip()
 
 
 def build_structure_scores(path: Path) -> dict[str, dict[str, Any]]:

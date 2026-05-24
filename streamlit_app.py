@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import html
+import json
+import math
 from typing import Any
+from urllib import request
 
 import streamlit as st
 
@@ -568,6 +571,381 @@ def clamp_percent(value: Any) -> float:
     return max(0.0, min(100.0, number))
 
 
+FINANCE_RADAR_METRICS = (
+    "Altman Z",
+    "资产负债率",
+    "经营现金流/收入",
+    "净利润三年CAGR",
+    "连续分红年数",
+    "有息负债占比",
+)
+
+
+GOVERNANCE_RADAR_METRICS = (
+    ("股权结构", "股权结构"),
+    ("股权质押", "质押风险"),
+    ("审计意见", "审计质量"),
+    ("合规记录", "合规水平"),
+    ("行业地位", "行业地位"),
+)
+
+QWEN_HIGHLIGHT_CACHE: dict[str, list[str]] = {}
+
+
+def finance_score_parts(score_text: Any) -> tuple[float, float, float]:
+    parts = str(score_text or "").replace(" ", "").split("/")
+    try:
+        score_value = float(parts[0])
+        max_value = float(parts[1])
+    except (IndexError, TypeError, ValueError):
+        return 0.0, 0.0, 0.0
+    if max_value <= 0:
+        return score_value, max_value, 0.0
+    return score_value, max_value, clamp_percent(score_value / max_value * 100)
+
+
+def finance_radar_items(rows: list[dict]) -> list[dict]:
+    row_by_label = {str(row.get("指标", "")): row for row in rows}
+    items = []
+    for label in FINANCE_RADAR_METRICS:
+        row = row_by_label.get(label, {})
+        score_value, max_value, percent = finance_score_parts(row.get("得分", ""))
+        value = report_value(row.get("数值", ""))
+        score_label = "无数据" if not row else f"{score_value:.1f}/{max_value:.1f}"
+        items.append(
+            {
+                "label": label,
+                "value": value,
+                "score_label": score_label,
+                "percent": percent,
+            }
+        )
+    return items
+
+
+def finance_radar_point(
+    index: int,
+    percent: float,
+    center_x: float = 250.0,
+    center_y: float = 182.0,
+    radius: float = 108.0,
+) -> tuple[float, float]:
+    angle = -math.pi / 2 + (math.tau * index / len(FINANCE_RADAR_METRICS))
+    scaled_radius = radius * clamp_percent(percent) / 100
+    return center_x + math.cos(angle) * scaled_radius, center_y + math.sin(angle) * scaled_radius
+
+
+def governance_radar_point(
+    index: int,
+    percent: float,
+    count: int,
+    center_x: float = 250.0,
+    center_y: float = 182.0,
+    radius: float = 108.0,
+) -> tuple[float, float]:
+    angle = -math.pi / 2 + (math.tau * index / count)
+    scaled_radius = radius * clamp_percent(percent) / 100
+    return center_x + math.cos(angle) * scaled_radius, center_y + math.sin(angle) * scaled_radius
+
+
+def governance_radar_items(rows: list[dict]) -> list[dict]:
+    row_by_label = {str(row.get("指标", "")): row for row in rows}
+    items = []
+    for source_label, display_label in GOVERNANCE_RADAR_METRICS:
+        row = row_by_label.get(source_label, {})
+        score_value, max_value, percent = finance_score_parts(row.get("得分", ""))
+        items.append(
+            {
+                "label": display_label,
+                "source_label": source_label,
+                "value": report_value(row.get("数值", "")),
+                "score_label": "无数据" if not row else f"{score_value:.1f}/{max_value:.1f}",
+                "percent": percent,
+            }
+        )
+    return items
+
+
+def governance_radar_chart_html(rows: list[dict]) -> str:
+    items = governance_radar_items(rows)
+    center_x, center_y, radius = 250.0, 182.0, 108.0
+    label_radius = 152.0
+    count = len(items)
+    grid_polygons = []
+    for level in (20, 40, 60, 80, 100):
+        points = " ".join(
+            f"{x:.1f},{y:.1f}"
+            for x, y in [
+                governance_radar_point(index, level, count, center_x, center_y, radius)
+                for index in range(count)
+            ]
+        )
+        grid_polygons.append(f'<polygon points="{points}" />')
+    axis_lines = []
+    labels = []
+    data_points = []
+    for index, item in enumerate(items):
+        axis_x, axis_y = governance_radar_point(index, 100, count, center_x, center_y, radius)
+        label_x, label_y = governance_radar_point(index, 100, count, center_x, center_y, label_radius)
+        point_x, point_y = governance_radar_point(index, item["percent"], count, center_x, center_y, radius)
+        anchor = "middle"
+        if label_x > center_x + 12:
+            anchor = "start"
+        elif label_x < center_x - 12:
+            anchor = "end"
+        axis_lines.append(f'<line x1="{center_x}" y1="{center_y}" x2="{axis_x:.1f}" y2="{axis_y:.1f}" />')
+        labels.append(
+            f'<text x="{label_x:.1f}" y="{label_y:.1f}" text-anchor="{anchor}">{h(item["label"])}</text>'
+        )
+        data_points.append((point_x, point_y, item))
+    data_polygon = " ".join(f"{x:.1f},{y:.1f}" for x, y, _ in data_points)
+    markers = "".join(
+        f'<circle cx="{x:.1f}" cy="{y:.1f}" r="4.4">'
+        f'<title>{h(item["label"])}：{h(item["value"])} · {h(item["score_label"])} · {item["percent"]:.1f}%</title>'
+        "</circle>"
+        for x, y, item in data_points
+    )
+    average = sum(item["percent"] for item in items) / len(items)
+    return (
+        '<section class="finance-radar-card governance-radar-card detail-card">'
+        '<div class="finance-radar-head">'
+        "<h3>治理能力雷达图</h3>"
+        f'<div class="finance-radar-score"><span>能力模型</span><strong>{average:.1f}%</strong></div>'
+        "</div>"
+        '<div class="finance-radar-wrap">'
+        '<svg class="finance-radar-svg" viewBox="0 0 500 370" role="img" aria-label="治理能力五维雷达图">'
+        f'<g class="finance-radar-grid">{"".join(grid_polygons)}</g>'
+        f'<g class="finance-radar-axis">{"".join(axis_lines)}</g>'
+        f'<polygon class="finance-radar-area" points="{data_polygon}" />'
+        f'<polyline class="finance-radar-line" points="{data_polygon} {data_points[0][0]:.1f},{data_points[0][1]:.1f}" />'
+        f'<g class="finance-radar-points">{markers}</g>'
+        f'<g class="finance-radar-labels">{"".join(labels)}</g>'
+        '<text class="finance-radar-center" x="250" y="186" text-anchor="middle">能力模型</text>'
+        "</svg>"
+        "</div>"
+        "</section>"
+    )
+
+
+def governance_trend_chart_html(trend: list[dict]) -> str:
+    if not trend:
+        return '<div class="governance-empty">暂无治理合规趋势数据</div>'
+    rows = sorted(trend, key=lambda item: int(item.get("year", 0)))
+    width, height = 420, 210
+    left, right, top, bottom = 42, 24, 20, 42
+    plot_width = width - left - right
+    plot_height = height - top - bottom
+
+    def xy(index: int, score: float) -> tuple[float, float]:
+        x = left + (plot_width * index / max(1, len(rows) - 1))
+        y = top + plot_height - (clamp_percent(score) / 100 * plot_height)
+        return x, y
+
+    grid = []
+    for value in (0, 25, 50, 75, 100):
+        y = top + plot_height - (value / 100 * plot_height)
+        grid.append(f'<line x1="{left}" y1="{y:.1f}" x2="{width - right}" y2="{y:.1f}" />')
+        grid.append(f'<text x="6" y="{y + 4:.1f}">{value}</text>')
+    points = [xy(index, float(row.get("score", 0))) for index, row in enumerate(rows)]
+    point_text = " ".join(f"{x:.1f},{y:.1f}" for x, y in points)
+    circles = "".join(
+        f'<circle cx="{x:.1f}" cy="{y:.1f}" r="4.6"><title>{int(row.get("year", 0))}年：{float(row.get("score", 0)):.1f}</title></circle>'
+        f'<text class="governance-score-label" x="{x:.1f}" y="{y - 10:.1f}">{float(row.get("score", 0)):.1f}</text>'
+        for (x, y), row in zip(points, rows)
+    )
+    year_labels = "".join(
+        f'<text class="governance-year-label" x="{x:.1f}" y="{height - 14}">{int(row.get("year", 0))}年</text>'
+        for (x, _), row in zip(points, rows)
+    )
+    table_rows = "".join(
+        "<tr>"
+        f"<td>{int(row.get('year', 0))}年</td>"
+        f"<td>{float(row.get('score', 0)):.1f}</td>"
+        f"<td>{h(row.get('date', ''))}</td>"
+        "</tr>"
+        for row in rows
+    )
+    return (
+        '<div class="governance-trend-chart">'
+        f'<svg viewBox="0 0 {width} {height}" role="img" aria-label="近三年治理合规趋势图">'
+        f'<g class="governance-grid">{"".join(grid)}</g>'
+        f'<polyline class="governance-trend-line" points="{point_text}" />'
+        f'<g class="governance-trend-points">{circles}</g>'
+        f'<g class="governance-year-axis">{year_labels}</g>'
+        "</svg>"
+        '<table class="governance-trend-table"><thead><tr><th>年份</th><th>得分</th><th>取数日期</th></tr></thead>'
+        f"<tbody>{table_rows}</tbody></table>"
+        "</div>"
+    )
+
+
+def governance_highlights_html(detail: dict) -> str:
+    qwen_items = []
+    if get_setting("QWEN_API_KEY") and get_setting("QWEN_HIGHLIGHTS_ENABLED", "1").strip().lower() not in {"0", "false"}:
+        qwen_items = _request_qwen_governance_highlights(detail)
+    source = "Qwen生成" if qwen_items else "规则生成"
+    items = qwen_items or rule_governance_highlights(detail)
+    rows = "".join(
+        f'<div class="governance-highlight-item"><span class="note-dot">i</span>{h(item)}</div>' for item in items
+    )
+    return (
+        '<section class="detail-card governance-highlights-card">'
+        '<div class="governance-card-head"><h3>关键治理亮点</h3>'
+        f'<span class="governance-source">{h(source)}</span></div>'
+        f"{rows}"
+        "</section>"
+    )
+
+
+def _request_qwen_governance_highlights(detail: dict) -> list[str]:
+    summary = governance_prompt_summary(detail)
+    model = get_setting("QWEN_MODEL", "qwen/qwen3-next-80b-a3b-instruct")
+    cache_key = json.dumps({"model": model, "summary": summary}, ensure_ascii=False, sort_keys=True)
+    if cache_key in QWEN_HIGHLIGHT_CACHE:
+        return list(QWEN_HIGHLIGHT_CACHE[cache_key])
+    api_key = get_setting("QWEN_API_KEY")
+    base_url = get_setting("QWEN_BASE_URL", "https://integrate.api.nvidia.com/v1").rstrip("/")
+    try:
+        timeout = float(get_setting("QWEN_TIMEOUT_SECONDS", "4") or 4)
+    except ValueError:
+        timeout = 4.0
+    payload = {
+        "model": model,
+        "stream": False,
+        "temperature": 0.2,
+        "max_tokens": 180,
+        "messages": [
+            {
+                "role": "system",
+                "content": "你是企业治理合规分析助手，只输出2到4条简洁中文亮点，每条不超过28字，不要编号。",
+            },
+            {"role": "user", "content": summary},
+        ],
+    }
+    api_request = request.Request(
+        f"{base_url}/chat/completions",
+        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with request.urlopen(api_request, timeout=timeout) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    except Exception:
+        return []
+    content = str(data.get("choices", [{}])[0].get("message", {}).get("content", ""))
+    items = parse_highlight_lines(content)
+    QWEN_HIGHLIGHT_CACHE[cache_key] = items
+    return list(items)
+
+
+def governance_prompt_summary(detail: dict) -> str:
+    evidence = [
+        f"{row.get('指标', '')}: 数值{row.get('数值', '')}, 得分{row.get('得分', '')}"
+        for row in detail.get("rows", [])
+    ]
+    trend = [
+        f"{int(row.get('year', 0))}年{float(row.get('score', 0)):.1f}分"
+        for row in detail.get("governanceTrend", [])
+    ]
+    return "治理合规评分证据：\n" + "\n".join(evidence) + "\n近三年趋势：" + "，".join(trend)
+
+
+def parse_highlight_lines(content: str) -> list[str]:
+    items = []
+    for line in content.splitlines():
+        text = line.strip().lstrip("-*0123456789.、)） ").strip()
+        if text:
+            items.append(text[:60])
+    return items[:4]
+
+
+def rule_governance_highlights(detail: dict) -> list[str]:
+    rows = detail.get("rows", [])
+    scores = {str(row.get("指标", "")): finance_score_parts(row.get("得分", ""))[2] for row in rows}
+    items = []
+    if scores.get("股权结构", 0) >= 80:
+        items.append("股权结构较清晰，治理基础稳定。")
+    if scores.get("股权质押", 0) >= 80:
+        items.append("质押风险可控，股权安全边际较好。")
+    trend = detail.get("governanceTrend", [])
+    if len(trend) >= 2 and float(trend[-1].get("score", 0)) > float(trend[0].get("score", 0)):
+        items.append("治理合规得分连续改善，能力模型走强。")
+    if scores.get("审计意见", 0) >= 80:
+        items.append("审计质量稳定，外部监督信号良好。")
+    if scores.get("合规记录", 0) >= 80:
+        items.append("合规记录表现良好，负面约束较少。")
+    if scores.get("行业地位", 0) >= 80:
+        items.append("行业地位突出，治理资质具备支撑力。")
+    return items[:4] or ["治理证据仍需补充，建议结合公告继续观察。"]
+
+
+def finance_radar_chart_html(rows: list[dict]) -> str:
+    items = finance_radar_items(rows)
+    center_x, center_y, radius = 250.0, 182.0, 108.0
+    label_radius = 152.0
+    grid_polygons = []
+    for level in (20, 40, 60, 80, 100):
+        points = " ".join(
+            f"{x:.1f},{y:.1f}"
+            for x, y in [finance_radar_point(index, level, center_x, center_y, radius) for index in range(6)]
+        )
+        grid_polygons.append(f'<polygon points="{points}" />')
+    axis_lines = []
+    labels = []
+    data_points = []
+    for index, item in enumerate(items):
+        axis_x, axis_y = finance_radar_point(index, 100, center_x, center_y, radius)
+        label_x, label_y = finance_radar_point(index, 100, center_x, center_y, label_radius)
+        point_x, point_y = finance_radar_point(index, item["percent"], center_x, center_y, radius)
+        anchor = "middle"
+        if label_x > center_x + 12:
+            anchor = "start"
+        elif label_x < center_x - 12:
+            anchor = "end"
+        axis_lines.append(f'<line x1="{center_x}" y1="{center_y}" x2="{axis_x:.1f}" y2="{axis_y:.1f}" />')
+        labels.append(
+            f'<text x="{label_x:.1f}" y="{label_y:.1f}" text-anchor="{anchor}">{h(item["label"])}</text>'
+        )
+        data_points.append((point_x, point_y, item))
+    data_polygon = " ".join(f"{x:.1f},{y:.1f}" for x, y, _ in data_points)
+    markers = "".join(
+        f'<circle cx="{x:.1f}" cy="{y:.1f}" r="4.4">'
+        f'<title>{h(item["label"])}：{h(item["value"])} · {h(item["score_label"])} · {item["percent"]:.1f}%</title>'
+        "</circle>"
+        for x, y, item in data_points
+    )
+    average = sum(item["percent"] for item in items) / len(items)
+    metric_rows = "".join(
+        '<div class="finance-radar-metric">'
+        f'<span>{h(item["label"])}</span>'
+        f'<strong>{h(item["value"])}</strong>'
+        f'<em>{h(item["score_label"])}</em>'
+        "</div>"
+        for item in items
+    )
+    return (
+        '<section class="finance-radar-card detail-card">'
+        '<div class="finance-radar-head">'
+        "<h3>财务引资潜力雷达图</h3>"
+        f'<div class="finance-radar-score"><span>综合完成度</span><strong>{average:.1f}%</strong></div>'
+        "</div>"
+        '<div class="finance-radar-wrap">'
+        '<svg class="finance-radar-svg" viewBox="0 0 500 370" role="img" aria-label="财务引资潜力六项指标雷达图">'
+        f'<g class="finance-radar-grid">{"".join(grid_polygons)}</g>'
+        f'<g class="finance-radar-axis">{"".join(axis_lines)}</g>'
+        f'<polygon class="finance-radar-area" points="{data_polygon}" />'
+        f'<polyline class="finance-radar-line" points="{data_polygon} {data_points[0][0]:.1f},{data_points[0][1]:.1f}" />'
+        f'<g class="finance-radar-points">{markers}</g>'
+        f'<g class="finance-radar-labels">{"".join(labels)}</g>'
+        '<text class="finance-radar-center" x="250" y="186" text-anchor="middle">得分占比</text>'
+        "</svg>"
+        "</div>"
+        f'<div class="finance-radar-metrics">{metric_rows}</div>'
+        "</section>"
+    )
+
+
 def inject_css() -> None:
     st.markdown(
         """
@@ -1008,6 +1386,208 @@ def inject_css() -> None:
         .detail-card h3 {
           margin: 0 0 16px 0;
           font-size: 22px;
+        }
+        .finance-radar-card {
+          min-height: 430px;
+          display: flex;
+          flex-direction: column;
+          overflow: hidden;
+        }
+        .finance-radar-head {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 18px;
+          margin-bottom: 6px;
+        }
+        .finance-radar-head h3 {
+          margin-bottom: 0;
+        }
+        .finance-radar-score {
+          border: 1px solid rgba(239, 63, 45, 0.18);
+          background: rgba(255, 246, 240, 0.88);
+          border-radius: 14px;
+          padding: 9px 12px;
+          text-align: right;
+          min-width: 104px;
+        }
+        .finance-radar-score span {
+          display: block;
+          color: var(--muted);
+          font-size: 11px;
+          line-height: 1.2;
+        }
+        .finance-radar-score strong {
+          display: block;
+          color: var(--accent);
+          font-family: "Noto Serif SC", serif;
+          font-size: 23px;
+          line-height: 1.1;
+          margin-top: 4px;
+        }
+        .finance-radar-wrap {
+          display: grid;
+          place-items: center;
+          margin-top: 4px;
+        }
+        .finance-radar-svg {
+          width: 100%;
+          max-width: 440px;
+          height: auto;
+          display: block;
+        }
+        .finance-radar-grid polygon {
+          fill: none;
+          stroke: rgba(16, 24, 32, 0.13);
+          stroke-width: 1;
+        }
+        .finance-radar-axis line {
+          stroke: rgba(16, 24, 32, 0.11);
+          stroke-dasharray: 4 6;
+        }
+        .finance-radar-area {
+          fill: rgba(239, 63, 45, 0.18);
+          stroke: none;
+        }
+        .finance-radar-line {
+          fill: none;
+          stroke: var(--accent);
+          stroke-width: 2.8;
+          stroke-linejoin: round;
+          stroke-linecap: round;
+        }
+        .finance-radar-points circle {
+          fill: #fffdfa;
+          stroke: var(--accent);
+          stroke-width: 2.4;
+        }
+        .finance-radar-labels text {
+          fill: #344054;
+          font-size: 12px;
+          font-weight: 800;
+        }
+        .finance-radar-center {
+          fill: rgba(102, 112, 133, 0.78);
+          font-size: 12px;
+          font-weight: 700;
+        }
+        .finance-radar-metrics {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 9px 12px;
+          margin-top: auto;
+        }
+        .finance-radar-metric {
+          border-top: 1px solid var(--line);
+          padding-top: 9px;
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto;
+          gap: 2px 10px;
+          align-items: baseline;
+        }
+        .finance-radar-metric span {
+          color: #344054;
+          font-size: 12px;
+          font-weight: 800;
+          overflow-wrap: anywhere;
+        }
+        .finance-radar-metric strong {
+          color: var(--ink);
+          font-size: 12px;
+          text-align: right;
+        }
+        .finance-radar-metric em {
+          grid-column: 1 / -1;
+          color: var(--muted);
+          font-size: 11px;
+          font-style: normal;
+        }
+        .governance-trend-card,
+        .governance-highlights-card {
+          min-height: 280px;
+        }
+        .governance-card-head {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 16px;
+          margin-bottom: 12px;
+        }
+        .governance-card-head h3 {
+          margin-bottom: 0;
+        }
+        .governance-source {
+          border: 1px solid rgba(15, 170, 165, 0.24);
+          background: rgba(231, 246, 242, 0.82);
+          color: #087c78;
+          border-radius: 999px;
+          padding: 5px 10px;
+          font-size: 11px;
+          font-weight: 800;
+          white-space: nowrap;
+        }
+        .governance-trend-chart svg {
+          width: 100%;
+          height: auto;
+          display: block;
+          margin-top: 4px;
+        }
+        .governance-grid line {
+          stroke: rgba(16, 24, 32, 0.10);
+        }
+        .governance-grid text {
+          fill: rgba(102, 112, 133, 0.82);
+          font-size: 11px;
+          font-weight: 700;
+        }
+        .governance-trend-line {
+          fill: none;
+          stroke: var(--accent);
+          stroke-width: 3;
+          stroke-linecap: round;
+          stroke-linejoin: round;
+        }
+        .governance-trend-points circle {
+          fill: #fffdfa;
+          stroke: var(--accent);
+          stroke-width: 2.4;
+        }
+        .governance-score-label,
+        .governance-year-label {
+          fill: #344054;
+          font-size: 12px;
+          font-weight: 800;
+          text-anchor: middle;
+        }
+        .governance-trend-table {
+          width: 100%;
+          border-collapse: collapse;
+          margin-top: 10px;
+          font-size: 12px;
+        }
+        .governance-trend-table th,
+        .governance-trend-table td {
+          border-top: 1px solid var(--line);
+          padding: 8px 6px;
+          text-align: left;
+        }
+        .governance-trend-table th {
+          color: var(--muted);
+          font-weight: 800;
+        }
+        .governance-highlight-item {
+          border-top: 1px solid var(--line);
+          padding: 13px 0;
+          color: #2f3940;
+          line-height: 1.7;
+        }
+        .governance-empty {
+          border: 1px dashed rgba(16, 24, 32, 0.18);
+          border-radius: 14px;
+          color: var(--muted);
+          padding: 28px 18px;
+          text-align: center;
+          font-size: 13px;
         }
         .note-item {
           border-top: 1px solid var(--line);
@@ -2083,6 +2663,21 @@ def inject_css() -> None:
           .reform-status-stack {
             grid-template-columns: 1fr;
           }
+          .finance-radar-card {
+            min-height: auto;
+          }
+          .finance-radar-head {
+            display: grid;
+          }
+          .finance-radar-score {
+            text-align: left;
+          }
+          .finance-radar-metrics {
+            grid-template-columns: 1fr;
+          }
+          .governance-card-head {
+            display: grid;
+          }
         }
         @media (max-width: 520px) {
           .hero-signal-panel {
@@ -2819,7 +3414,11 @@ def render_module_page() -> None:
         unsafe_allow_html=True,
     )
 
-    if module_key == "mixed":
+    if module_key == "finance":
+        render_finance_module_detail(detail)
+    elif module_key == "equity":
+        render_governance_module_detail(detail)
+    elif module_key == "mixed":
         st.markdown(mixed_module_detail_html(detail), unsafe_allow_html=True)
         if not detail.get("mixedDegreeProfile"):
             render_generic_module_detail(detail)
@@ -2848,6 +3447,38 @@ def render_generic_module_detail(detail: dict) -> None:
         for item in detail["notes"]:
             st.markdown(f'<div class="note-item"><span class="note-dot">i</span>{h(item)}</div>', unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
+
+
+def render_finance_module_detail(detail: dict) -> None:
+    left, right = st.columns([1, 1], gap="large")
+    with left:
+        st.markdown('<div class="detail-card"><h3>指标证据表</h3>', unsafe_allow_html=True)
+        st.dataframe(detail["rows"], width="stretch", hide_index=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+    with right:
+        st.markdown(finance_radar_chart_html(detail["rows"]), unsafe_allow_html=True)
+
+
+def render_governance_module_detail(detail: dict) -> None:
+    top_left, top_right = st.columns([1, 1], gap="large")
+    with top_left:
+        st.markdown('<div class="detail-card"><h3>指标证据表</h3>', unsafe_allow_html=True)
+        st.dataframe(detail["rows"], width="stretch", hide_index=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+    with top_right:
+        st.markdown(governance_radar_chart_html(detail["rows"]), unsafe_allow_html=True)
+
+    bottom_left, bottom_right = st.columns([1, 1], gap="large")
+    with bottom_left:
+        st.markdown(
+            '<section class="detail-card governance-trend-card">'
+            '<h3>治理合规趋势表（近三年）</h3>'
+            f'{governance_trend_chart_html(detail.get("governanceTrend", []))}'
+            "</section>",
+            unsafe_allow_html=True,
+        )
+    with bottom_right:
+        st.markdown(governance_highlights_html(detail), unsafe_allow_html=True)
 
 
 def render_method_page() -> None:

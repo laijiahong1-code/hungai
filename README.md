@@ -139,6 +139,7 @@ npm run build
 ```powershell
 $env:MONGODB_URI="mongodb+srv://<username>:<password>@<cluster-url>/?appName=Cluster0"
 $env:MONGODB_DATABASE="mixed_reform"
+$env:MIXED_REFORM_SOURCE_ROOT="C:\Users\赖宏\Desktop\公司混改系统"
 & "C:\Users\赖宏\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" -m streamlit run streamlit_app.py
 ```
 
@@ -149,3 +150,17 @@ http://localhost:8501
 ```
 
 Streamlit 页面包含：首页 Top 榜单、公司搜索、公司详情、省份榜单和数据说明。数据仍然来自 MongoDB 云端；如果没有设置 `MONGODB_URI`，会自动回退读取本地 `backend/database` 备份数据。
+
+治理合规资质二级页会从 `MIXED_REFORM_SOURCE_ROOT\企业股权评分\企业股权评分\result\企业股权最终评分.xlsx` 读取 2023-2025 年治理合规趋势；如果文件缺失，页面会显示空态。
+
+可选 Qwen/NVIDIA 亮点生成配置：
+
+```powershell
+$env:QWEN_API_KEY="<your-nvidia-api-key>"
+$env:QWEN_BASE_URL="https://integrate.api.nvidia.com/v1"
+$env:QWEN_MODEL="qwen/qwen3-next-80b-a3b-instruct"
+$env:QWEN_HIGHLIGHTS_ENABLED="1"
+$env:QWEN_TIMEOUT_SECONDS="4"
+```
+
+请只在本机环境变量或 Streamlit secrets 中配置真实 API key，不要写入仓库文件。如果未设置 `QWEN_API_KEY`，关键治理亮点会自动使用规则生成文案，不影响页面展示。

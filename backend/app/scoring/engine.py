@@ -5,7 +5,7 @@ from pathlib import Path
 
 from ..data import get_setting
 from .finance import build_finance_scores
-from .governance import build_governance_scores
+from .governance import build_governance_scores, build_governance_trends
 from .mixed import build_mixed_scores
 from .models import MODULE_CONFIG, MODULE_WEIGHTS, ModuleResult
 from .region import build_region_scores
@@ -19,6 +19,7 @@ class ScoringEngine:
         self.source_root = Path(source_root or configured_source_root())
         self._loaded = False
         self._scores: dict[str, dict[str, ModuleResult]] = {}
+        self._governance_trends: dict[str, list[dict]] = {}
 
     def score_company(self, stock_code: str) -> dict:
         code = str(stock_code).zfill(6)
@@ -34,6 +35,7 @@ class ScoringEngine:
             "module_scores": modules.copy(),
             "module_details": {key: result.detail_dict() for key, result in module_results.items()},
             "raw_scores": {key: result.raw_score_dict() for key, result in module_results.items()},
+            "governanceTrend": [item.copy() for item in self._governance_trends.get(code, [])],
             "totalScore": total_score,
             "potentialLevel": potential_level(total_score),
             "vetoReasons": [],
@@ -44,6 +46,7 @@ class ScoringEngine:
             return self._scores
         if not self.source_root.exists():
             self._scores = {"mixed": build_mixed_scores(self.source_root)}
+            self._governance_trends = {}
         else:
             self._scores = {
                 "finance": build_finance_scores(self.source_root),
@@ -51,6 +54,7 @@ class ScoringEngine:
                 "region": build_region_scores(self.source_root),
                 "mixed": build_mixed_scores(self.source_root),
             }
+            self._governance_trends = build_governance_trends(self.source_root)
         self._loaded = True
         return self._scores
 

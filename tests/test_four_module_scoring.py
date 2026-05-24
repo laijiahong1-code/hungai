@@ -94,6 +94,19 @@ def write_source_root(root: Path) -> None:
     write_workbook(data_dir / "审计意见.xlsx", "Sheet1", ["股票代码", "审计意见"], [["600001", "标准无保留意见"]])
     write_workbook(data_dir / "违规信息.xlsx", "Sheet1", ["股票代码", "违规类型"], [["600002", "一般违规"]])
     write_workbook(data_dir / "龙头企业.xlsx", "Sheet1", ["股票代码"], [["600001"]])
+    write_workbook(
+        governance_dir / "result" / "企业股权最终评分.xlsx",
+        "Sheet1",
+        ["股票代码", "截止日期", "最终总分", "年份"],
+        [
+            ["600001", "2022-12-31", 16.0, 2022],
+            ["600001", "2023-12-31", 18.0, 2023],
+            ["600001", "2024-03-31", 19.0, 2024],
+            ["600001", "2024-12-31", 20.0, 2024],
+            ["600001", "2025-09-30", 21.25, 2025],
+            ["600002", "2025-12-31", 10.0, 2025],
+        ],
+    )
 
     region_dir = root / "区域国资匹配度" / "区域国资匹配度——代码初稿"
     company_rows = [["600001", "甲能源", "甲能源集团", "能源", "江西省", "南昌市"]]
@@ -182,11 +195,24 @@ def test_scoring_engine_recomputes_four_modules_from_raw_sources(tmp_path):
     assert result["module_details"]["equity"]["evidence"][0]["max"] == 5.0
 
 
+def test_scoring_engine_exposes_governance_trend_from_final_scores(tmp_path):
+    write_source_root(tmp_path)
+
+    result = ScoringEngine(tmp_path).score_company("600001")
+
+    assert result["governanceTrend"] == [
+        {"year": 2023, "score": 72.0, "rawScore": 18.0, "date": "2023-12-31"},
+        {"year": 2024, "score": 80.0, "rawScore": 20.0, "date": "2024-12-31"},
+        {"year": 2025, "score": 85.0, "rawScore": 21.25, "date": "2025-09-30"},
+    ]
+
+
 def test_scoring_engine_returns_zero_scores_when_raw_company_is_missing(tmp_path):
     write_source_root(tmp_path)
 
     result = ScoringEngine(tmp_path).score_company("600999")
 
     assert result["modules"] == {"finance": 0.0, "equity": 0.0, "region": 0.0, "mixed": 0.0}
+    assert result["governanceTrend"] == []
     assert result["totalScore"] == 0.0
     assert result["potentialLevel"] == "低潜力"

@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 import streamlit_app
@@ -17,6 +19,16 @@ from backend.app.streamlit_view import (
 )
 
 
+FINANCE_RADAR_LABELS = [
+    "Altman Z",
+    "资产负债率",
+    "经营现金流/收入",
+    "净利润三年CAGR",
+    "连续分红年数",
+    "有息负债占比",
+]
+
+
 def sample_company():
     return {
         "code": "600001",
@@ -34,6 +46,10 @@ def sample_company():
                 "evidence": [
                     {"label": "Altman Z", "value": "3.20", "score": 10.0, "max": 10.0},
                     {"label": "资产负债率", "value": "50.0%", "score": 10.0, "max": 10.0},
+                    {"label": "经营现金流/收入", "value": "18.5%", "score": 10.0, "max": 10.0},
+                    {"label": "净利润三年CAGR", "value": "69.2%", "score": 10.0, "max": 10.0},
+                    {"label": "连续分红年数", "value": "3 年", "score": 5.0, "max": 5.0},
+                    {"label": "有息负债占比", "value": "23.1%", "score": 3.8, "max": 5.0},
                 ]
             },
             "equity": {
@@ -76,6 +92,11 @@ def sample_company():
         },
         "highlights": ["区域政策匹配"],
         "risks": ["资产负债率偏高"],
+        "governanceTrend": [
+            {"year": 2023, "score": 72.0, "rawScore": 18.0, "date": "2023-12-31"},
+            {"year": 2024, "score": 80.0, "rawScore": 20.0, "date": "2024-12-31"},
+            {"year": 2025, "score": 85.0, "rawScore": 21.25, "date": "2025-09-30"},
+        ],
         "mixedDegreeProfile": {
             "score": 86.1,
             "level": "高度融合混改",
@@ -176,10 +197,43 @@ def test_module_detail_builds_finance_secondary_page_model():
     assert detail["band_label"] == "支撑项"
     assert "财务引资潜力得分72.0" in detail["report_summary"]
     assert "Altman Z、债务结构、现金盈利与分红" in detail["report_summary"]
+    assert [row["指标"] for row in detail["rows"]] == FINANCE_RADAR_LABELS
     assert {"指标": "Altman Z", "数值": "3.20", "得分": "10.0 / 10.0"} in detail["rows"]
     assert {"指标": "资产负债率", "数值": "50.0%", "得分": "10.0 / 10.0"} in detail["rows"]
+    assert {"指标": "经营现金流/收入", "数值": "18.5%", "得分": "10.0 / 10.0"} in detail["rows"]
+    assert {"指标": "净利润三年CAGR", "数值": "69.2%", "得分": "10.0 / 10.0"} in detail["rows"]
+    assert {"指标": "连续分红年数", "数值": "3 年", "得分": "5.0 / 5.0"} in detail["rows"]
+    assert {"指标": "有息负债占比", "数值": "23.1%", "得分": "3.8 / 5.0"} in detail["rows"]
     assert all(row["指标"] != "ROI" for row in detail["rows"])
     assert detail["notes"] == ["资产负债率偏高"]
+
+
+def test_finance_radar_chart_html_uses_six_metric_contract():
+    helper = getattr(streamlit_app, "finance_radar_chart_html", None)
+    detail = module_detail(sample_company(), "finance")
+
+    assert helper is not None
+    html = helper(detail["rows"])
+
+    assert "finance-radar-card" in html
+    assert 'role="img"' in html
+    assert "财务引资潜力雷达图" in html
+    assert "综合完成度" in html
+    assert "96.0%" in html
+    assert "关联说明与信号" not in html
+    for label in FINANCE_RADAR_LABELS:
+        assert label in html
+
+
+def test_finance_radar_chart_html_keeps_missing_metrics_visible():
+    helper = getattr(streamlit_app, "finance_radar_chart_html", None)
+
+    assert helper is not None
+    html = helper([{"指标": "Altman Z", "数值": "3.20", "得分": "10.0 / 10.0"}])
+
+    assert "Altman Z" in html
+    assert "有息负债占比" in html
+    assert "无数据" in html
 
 
 def test_mixed_module_detail_exposes_profile_and_page_html():
@@ -343,6 +397,130 @@ def test_module_detail_builds_equity_audit_rows():
     assert {"指标": "股权结构", "数值": "4.5/5", "得分": "4.5 / 5.0"} in detail["rows"]
     assert {"指标": "审计意见", "数值": "5/5", "得分": "5.0 / 5.0"} in detail["rows"]
     assert len(detail["rows"]) == 5
+    assert detail["governanceTrend"][-1] == {"year": 2025, "score": 85.0, "rawScore": 21.25, "date": "2025-09-30"}
+
+
+def test_governance_radar_chart_html_uses_five_metric_contract():
+    detail = module_detail(sample_company(), "equity")
+    html = streamlit_app.governance_radar_chart_html(detail["rows"])
+
+    assert "governance-radar-card" in html
+    assert 'role="img"' in html
+    assert "治理能力雷达图" in html
+    assert "能力模型" in html
+    assert "质押风险" in html
+    assert "审计质量" in html
+    assert "合规水平" in html
+    assert "关联说明与信号" not in html
+
+
+def test_governance_trend_chart_html_uses_three_year_scores():
+    detail = module_detail(sample_company(), "equity")
+    html = streamlit_app.governance_trend_chart_html(detail["governanceTrend"])
+
+    assert "governance-trend-chart" in html
+    assert 'role="img"' in html
+    assert "2023年" in html
+    assert "2024年" in html
+    assert "2025年" in html
+    assert "85.0" in html
+
+
+def test_governance_trend_chart_html_handles_missing_data():
+    html = streamlit_app.governance_trend_chart_html([])
+
+    assert "暂无治理合规趋势数据" in html
+
+
+def test_governance_highlights_use_qwen_when_configured(monkeypatch):
+    detail = module_detail(sample_company(), "equity")
+    monkeypatch.setattr(
+        streamlit_app,
+        "get_setting",
+        lambda name, default="": {
+            "QWEN_API_KEY": "secret",
+            "QWEN_HIGHLIGHTS_ENABLED": "1",
+        }.get(name, default),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        streamlit_app,
+        "_request_qwen_governance_highlights",
+        lambda detail: ["模型判断：审计意见稳定，合规记录清晰。"],
+        raising=False,
+    )
+
+    html = streamlit_app.governance_highlights_html(detail)
+
+    assert "模型判断：审计意见稳定，合规记录清晰。" in html
+    assert "Qwen生成" in html
+    assert "规则生成" not in html
+
+
+def test_qwen_governance_highlights_request_uses_nvidia_chat_completions(monkeypatch):
+    detail = module_detail(sample_company(), "equity")
+    captured = {}
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+        def read(self):
+            return json.dumps(
+                {
+                    "choices": [
+                        {
+                            "message": {
+                                "content": "治理基础稳定\n审计质量良好",
+                            }
+                        }
+                    ]
+                }
+            ).encode("utf-8")
+
+    def fake_urlopen(api_request, timeout):
+        captured["request"] = api_request
+        captured["timeout"] = timeout
+        return FakeResponse()
+
+    monkeypatch.setattr(
+        streamlit_app,
+        "get_setting",
+        lambda name, default="": {
+            "QWEN_API_KEY": "qwen-secret",
+            "QWEN_BASE_URL": "https://integrate.api.nvidia.com/v1",
+            "QWEN_MODEL": "qwen/qwen3-next-80b-a3b-instruct",
+            "QWEN_TIMEOUT_SECONDS": "7",
+        }.get(name, default),
+        raising=False,
+    )
+    monkeypatch.setattr(streamlit_app.request, "urlopen", fake_urlopen)
+    if hasattr(streamlit_app, "QWEN_HIGHLIGHT_CACHE"):
+        streamlit_app.QWEN_HIGHLIGHT_CACHE.clear()
+
+    items = streamlit_app._request_qwen_governance_highlights(detail)
+
+    payload = json.loads(captured["request"].data.decode("utf-8"))
+    assert captured["request"].full_url == "https://integrate.api.nvidia.com/v1/chat/completions"
+    assert captured["request"].get_header("Authorization") == "Bearer qwen-secret"
+    assert captured["timeout"] == 7.0
+    assert payload["model"] == "qwen/qwen3-next-80b-a3b-instruct"
+    assert payload["stream"] is False
+    assert items == ["治理基础稳定", "审计质量良好"]
+
+
+def test_governance_highlights_fall_back_without_qwen_key(monkeypatch):
+    detail = module_detail(sample_company(), "equity")
+    monkeypatch.setattr(streamlit_app, "get_setting", lambda name, default="": default, raising=False)
+
+    html = streamlit_app.governance_highlights_html(detail)
+
+    assert "规则生成" in html
+    assert "质押风险可控" in html
+    assert "治理合规得分连续改善" in html
 
 
 def test_module_detail_equity_fallback_includes_top_shareholder_name():
