@@ -255,6 +255,7 @@ def module_detail(company: dict, module_key: str) -> dict:
         "report_summary": _module_summary(meta["label"], current_score, band, meta["focus"]),
         "rows": _module_rows(company, module_key),
         "notes": _module_notes(company, module_key),
+        "mixedDegreeProfile": company.get("mixedDegreeProfile", {}) if module_key == "mixed" else {},
     }
 
 

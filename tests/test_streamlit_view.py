@@ -76,6 +76,41 @@ def sample_company():
         },
         "highlights": ["区域政策匹配"],
         "risks": ["资产负债率偏高"],
+        "mixedDegreeProfile": {
+            "score": 86.1,
+            "level": "高度融合混改",
+            "scoreItems": [
+                {
+                    "label": "非国有资本进入程度",
+                    "score": 29.8,
+                    "max": 30,
+                    "percent": 99.3,
+                    "description": "非国有资本参与充分",
+                }
+            ],
+            "structureMetrics": {
+                "nonStateRatio": 55.0,
+                "diversity": 4,
+                "ownershipConcentration": 66.0,
+            },
+            "shareholders": [
+                {
+                    "rank": 1,
+                    "name": "广东德赛集团有限公司",
+                    "ratio": 28.31,
+                    "nature": "国有法人",
+                    "holderGroupLabel": "国资相关",
+                }
+            ],
+            "holderGroups": [
+                {"label": "国资相关", "ratio": 28.31, "percentage": 55.77, "color": "#2563eb"},
+                {"label": "市场化股东", "ratio": 5.58, "percentage": 10.99, "color": "#0faaa5"},
+                {"label": "机构/互联互通", "ratio": 1.56, "percentage": 3.08, "color": "#7c5ce7"},
+                {"label": "其他市场主体", "ratio": 15.31, "percentage": 30.16, "color": "#fb5a1e"},
+            ],
+            "structureNotes": ["前十大股东持股集中度较高，股权结构整体较稳定。"],
+            "signalTags": ["国资参与", "股东多元", "市场化参与", "结构稳定"],
+        },
     }
 
 
@@ -145,6 +180,72 @@ def test_module_detail_builds_finance_secondary_page_model():
     assert {"指标": "资产负债率", "数值": "50.0%", "得分": "10.0 / 10.0"} in detail["rows"]
     assert all(row["指标"] != "ROI" for row in detail["rows"])
     assert detail["notes"] == ["资产负债率偏高"]
+
+
+def test_mixed_module_detail_exposes_profile_and_page_html():
+    detail = module_detail(sample_company(), "mixed")
+    html = streamlit_app.mixed_module_detail_html(detail)
+
+    assert detail["mixedDegreeProfile"]["score"] == 86.1
+    assert "指标拆解与得分依据" in html
+    assert "主要股东结构名单" in html
+    assert "股东类别占比" in html
+    assert "自动结构解读" in html
+    assert "自动混改信号标签" in html
+    assert "广东德赛集团有限公司" in html
+
+
+def test_mixed_shareholder_table_uses_compact_scroll_contract():
+    detail = module_detail(sample_company(), "mixed")
+    html = streamlit_app.mixed_module_detail_html(detail)
+
+    assert 'class="mixed-table-scroll mixed-shareholder-scroll"' in html
+    assert 'class="mixed-shareholder-col-rank"' in html
+    assert 'class="mixed-shareholder-col-name"' in html
+    assert 'class="mixed-shareholder-col-ratio"' in html
+    assert 'class="mixed-shareholder-col-nature"' in html
+    assert 'class="mixed-shareholder-col-category"' in html
+
+
+def test_mixed_shareholder_row_keeps_full_name_in_cell_and_title():
+    long_name = "中信建投证券-信邦通远(上海)投资管理有限公司-中信建投长期价值集合资产管理计划"
+    html = streamlit_app.mixed_shareholder_row_html(
+        {
+            "rank": 8,
+            "name": long_name,
+            "ratio": 2.2,
+            "nature": "机构账户 / 互联互通",
+            "holderGroupLabel": "机构 / 市场化",
+        }
+    )
+
+    assert f'title="{long_name}"' in html
+    assert f'<span class="mixed-holder-name" title="{long_name}">' in html
+    assert f'<span class="mixed-holder-name-text">{long_name}</span>' in html
+
+
+def test_mixed_score_rows_use_distinct_reference_style_icons():
+    labels_and_icons = [
+        ("非国有资本进入程度", "capital"),
+        ("股权结构多样性", "diversity"),
+        ("股权制衡程度", "balance"),
+        ("股权融合程度", "integration"),
+        ("股权开放治理程度", "governance"),
+    ]
+
+    for label, icon in labels_and_icons:
+        html = streamlit_app.mixed_score_progress_row_html({"label": label, "percent": 80, "score": 8, "max": 10})
+
+        assert f"mixed-score-icon-{icon}" in html
+        assert '<svg class="mixed-score-symbol"' in html
+
+
+def test_mixed_module_detail_html_handles_missing_profile():
+    detail = module_detail({**sample_company(), "mixedDegreeProfile": {}}, "mixed")
+    html = streamlit_app.mixed_module_detail_html(detail)
+
+    assert "暂无混改结构明细" in html
+    assert "基础指标证据" in html
 
 
 def test_financial_metric_card_rows_use_roe_not_roi():

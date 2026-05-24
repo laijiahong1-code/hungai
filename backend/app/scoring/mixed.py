@@ -10,7 +10,8 @@ from .common import normalize_year, read_csv_rows, stock_code
 from .models import Evidence, ModuleResult
 
 
-BASE_PARTS = ("混改程度评分", "国有上市公司混改程度表105735375(仅供厦门大学使用)")
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+CURRENT_A_SHARE_SCORED = PROJECT_ROOT / "data" / "HLD_current_A_share_mixed_ownership_scored.csv"
 
 REQUIRED_COLUMNS = [
     "InstitutionID",
@@ -40,10 +41,32 @@ NUMERIC_COLUMNS = [
     "EquityIntegration",
 ]
 
+SCORE_COLUMNS = [
+    "Score_NonStateCapital",
+    "Score_EquityDiversity",
+    "Score_EquityBalance",
+    "Score_EquityIntegration",
+    "Score_OpenGovernance",
+]
+
+SCORE_ITEMS = [
+    ("非国有资本进入程度", "Score_NonStateCapital", 30.0),
+    ("股权结构多样性", "Score_EquityDiversity", 20.0),
+    ("股权制衡程度", "Score_EquityBalance", 20.0),
+    ("股权融合程度", "Score_EquityIntegration", 15.0),
+    ("股权开放治理程度", "Score_OpenGovernance", 15.0),
+]
+
 
 def build_mixed_scores(source_root: Path) -> dict[str, ModuleResult]:
-    path = source_root.joinpath(*BASE_PARTS, "GA_StateOwnedMixedDegree.csv")
-    rows = read_csv_rows(path)
+    legacy_path = resolve_legacy_ga_path(source_root)
+    current_scores = build_current_a_share_scores(source_root, allow_project_default=legacy_path is None)
+    if current_scores:
+        return current_scores
+
+    if legacy_path is None:
+        return {}
+    rows = read_csv_rows(legacy_path)
     if not rows:
         return {}
     frame = pd.DataFrame(rows)
@@ -59,15 +82,84 @@ def build_mixed_scores(source_root: Path) -> dict[str, ModuleResult]:
         if not code:
             continue
         row = group.iloc[-1]
-        evidence = [
-            Evidence("非国有资本进入程度", f"{row['Score_NonStateCapital']:.1f}/30", row["Score_NonStateCapital"], 30.0),
-            Evidence("股权结构多样性", f"{row['Score_EquityDiversity']:.1f}/20", row["Score_EquityDiversity"], 20.0),
-            Evidence("股权制衡程度", f"{row['Score_EquityBalance']:.1f}/20", row["Score_EquityBalance"], 20.0),
-            Evidence("股权融合程度", f"{row['Score_EquityIntegration']:.1f}/15", row["Score_EquityIntegration"], 15.0),
-            Evidence("股权开放治理程度", f"{row['Score_OpenGovernance']:.1f}/15", row["Score_OpenGovernance"], 15.0),
-        ]
-        results[code] = ModuleResult("mixed", float(row["MixedOwnershipScore"]), evidence)
+        results[code] = ModuleResult("mixed", float(row["MixedOwnershipScore"]), evidence_from_row(row))
     return results
+
+
+def build_current_a_share_scores(
+    source_root: Path,
+    allow_project_default: bool = True,
+) -> dict[str, ModuleResult]:
+    path = resolve_current_a_share_scored_path(source_root, allow_project_default)
+    if path is None:
+        return {}
+    try:
+        frame = pd.read_csv(path, dtype={"Symbol": str}, low_memory=False)
+    except Exception:
+        return {}
+    required = {"Symbol", "EndDate", "MixedOwnershipScore", *SCORE_COLUMNS}
+    if any(column not in frame.columns for column in required):
+        return {}
+    for column in ["MixedOwnershipScore", *SCORE_COLUMNS]:
+        frame[column] = pd.to_numeric(frame[column], errors="coerce")
+    frame["_stock_code"] = frame["Symbol"].apply(stock_code)
+    frame["_year"] = frame["EndDate"].apply(normalize_year)
+    frame = frame.dropna(subset=["MixedOwnershipScore"]).sort_values(["_stock_code", "_year"])
+    results = {}
+    for code, group in frame.groupby("_stock_code"):
+        if not code:
+            continue
+        row = group.iloc[-1]
+        results[code] = ModuleResult("mixed", float(row["MixedOwnershipScore"]), evidence_from_row(row))
+    return results
+
+
+def resolve_current_a_share_scored_path(
+    source_root: Path,
+    allow_project_default: bool = True,
+) -> Path | None:
+    candidates = [
+        source_root / "HLD_current_A_share_mixed_ownership_scored.csv",
+        source_root
+        / "交付_混改评分系统"
+        / "交付_混改评分系统"
+        / "HLD_current_A_share_mixed_ownership_scored.csv",
+    ]
+    if allow_project_default:
+        candidates.append(CURRENT_A_SHARE_SCORED)
+    for path in candidates:
+        if path.exists():
+            return path
+    return None
+
+
+def resolve_legacy_ga_path(source_root: Path) -> Path | None:
+    direct = source_root / "GA_StateOwnedMixedDegree.csv"
+    if direct.exists():
+        return direct
+    if not source_root.exists():
+        return None
+    matches = list(source_root.rglob("GA_StateOwnedMixedDegree.csv"))
+    return matches[0] if matches else None
+
+
+def evidence_from_row(row: pd.Series) -> list[Evidence]:
+    evidence = []
+    for label, column, max_score in SCORE_ITEMS:
+        score = safe_float(row.get(column), 0.0)
+        evidence.append(Evidence(label, f"{score:.1f}/{max_score:.0f}", score, max_score))
+    return evidence
+
+
+def safe_float(value: Any, default: float = 0.0) -> float:
+    if value is None:
+        return default
+    try:
+        if pd.isna(value):
+            return default
+        return float(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def add_scores(df: pd.DataFrame) -> pd.DataFrame:
@@ -113,15 +205,8 @@ def add_scores(df: pd.DataFrame) -> pd.DataFrame:
         + fill_component_missing(governance_entropy_score, 5)
     )
 
-    score_columns = [
-        "Score_NonStateCapital",
-        "Score_EquityDiversity",
-        "Score_EquityBalance",
-        "Score_EquityIntegration",
-        "Score_OpenGovernance",
-    ]
-    scored["MixedOwnershipScore"] = scored[score_columns].sum(axis=1).clip(lower=0, upper=100).round(2)
-    for column in score_columns:
+    scored["MixedOwnershipScore"] = scored[SCORE_COLUMNS].sum(axis=1).clip(lower=0, upper=100).round(2)
+    for column in SCORE_COLUMNS:
         scored[column] = scored[column].round(2)
     return scored
 

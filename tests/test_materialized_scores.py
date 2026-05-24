@@ -46,6 +46,15 @@ def test_build_company_score_documents_are_public_and_searchable():
     assert "甲能源A" in docs[0]["_search_text"]
 
 
+def test_build_company_score_documents_include_mixed_degree_profile(monkeypatch):
+    profile = {"score": 86.1, "level": "高度融合混改", "scoreItems": []}
+    monkeypatch.setattr(services, "_mixed_degree_profiles_by_stock", lambda: {"600001": profile})
+
+    docs = services.build_company_score_documents([sample_record()])
+
+    assert docs[0]["mixedDegreeProfile"] == profile
+
+
 def test_build_province_score_documents_group_companies_by_province():
     score_docs = services.build_company_score_documents(
         [
@@ -226,6 +235,33 @@ def test_company_detail_supplements_materialized_reform_profile(monkeypatch):
         "mixedStatusLabel": "正在进行混改",
         "source": "status_csv",
     }
+
+
+def test_company_detail_supplements_materialized_mixed_degree_profile(monkeypatch):
+    docs = services.build_company_score_documents([sample_record()])
+    docs[0].pop("mixedDegreeProfile", None)
+    profile = {"score": 86.1, "level": "高度融合混改", "scoreItems": []}
+
+    class FakeDatabase:
+        def has_collection(self, collection):
+            return collection == "company_scores"
+
+        def find_query(self, collection, query=None, sort=None, limit=0, projection=None):
+            assert collection == "company_scores"
+            return docs[:limit] if limit else docs
+
+        def count_documents(self, collection, query=None):
+            return 0
+
+        def distinct(self, collection, key, query=None):
+            return ["江西省"]
+
+    monkeypatch.setattr(services, "default_database", lambda: FakeDatabase())
+    monkeypatch.setattr(services, "_mixed_degree_profiles_by_stock", lambda: {"600001": profile})
+
+    detail = services.get_company_detail("600001")
+
+    assert detail["mixedDegreeProfile"] == profile
 
 
 def test_company_detail_seeds_top_shareholder_collection_when_mongo_missing(monkeypatch):

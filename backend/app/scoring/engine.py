@@ -43,7 +43,7 @@ class ScoringEngine:
         if self._loaded:
             return self._scores
         if not self.source_root.exists():
-            self._scores = {}
+            self._scores = {"mixed": build_mixed_scores(self.source_root)}
         else:
             self._scores = {
                 "finance": build_finance_scores(self.source_root),

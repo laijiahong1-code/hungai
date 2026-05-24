@@ -6,6 +6,7 @@ from typing import Iterable
 
 from .data import BACKEND_ROOT, PROVINCE_ALIASES, default_database, load_company_records
 from .import_sources import latest_audit_by_stock, latest_roe_by_stock
+from .mixed_degree import mixed_degree_profiles_by_stock
 from .mixed_status import company_reform_profile, load_status_lookup
 from .scoring import get_scoring_result
 from .top_shareholders import (
@@ -204,6 +205,7 @@ def _public_company(record: dict) -> dict:
             score,
             _reform_status_lookup_by_stock(),
         ),
+        "mixedDegreeProfile": _mixed_degree_profiles_by_stock().get(str(record.get("stock_code", "")).zfill(6), {}),
         "vetoReasons": scoring["vetoReasons"],
         "positive_reasons": positive_reasons,
         "highlights": positive_reasons,
@@ -281,6 +283,11 @@ def _reform_status_lookup_by_stock() -> dict[str, dict[str, object]]:
     return load_status_lookup()
 
 
+@lru_cache(maxsize=1)
+def _mixed_degree_profiles_by_stock() -> dict[str, dict[str, object]]:
+    return mixed_degree_profiles_by_stock()
+
+
 def _seed_top_shareholder_collection(database: object) -> bool:
     if not hasattr(database, "replace_all"):
         return False
@@ -353,6 +360,13 @@ def _apply_reform_profile_supplement(detail: dict) -> dict:
     return detail
 
 
+def _apply_mixed_degree_profile_supplement(detail: dict) -> dict:
+    stock_code = str(detail.get("stock_code") or detail.get("code") or "").zfill(6)
+    if not detail.get("mixedDegreeProfile"):
+        detail["mixedDegreeProfile"] = _mixed_degree_profiles_by_stock().get(stock_code, {})
+    return detail
+
+
 def _apply_audit_supplement(detail: dict) -> dict:
     stock_code = str(detail.get("stock_code") or detail.get("code") or "")
     audit = _audit_supplements_by_stock().get(stock_code)
@@ -390,6 +404,7 @@ def _apply_roe_supplement(detail: dict) -> dict:
 
 def _apply_detail_supplements(detail: dict) -> dict:
     detail = _apply_reform_profile_supplement(detail)
+    detail = _apply_mixed_degree_profile_supplement(detail)
     detail = _apply_top_shareholder_supplement(detail)
     detail = _apply_roe_supplement(detail)
     return _apply_audit_supplement(detail)

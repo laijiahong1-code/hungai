@@ -15,7 +15,12 @@ backend/*
 !backend/app/
 !backend/app/**
 backend/app/__pycache__/
-backend/database/
+backend/app/**/__pycache__/
+backend/app/**/*.pyc
+backend/database/*
+!backend/database/
+!backend/database/*.json
+backend/database/raw/
 backend/*.csv
 backend/*.xlsx
 backend/*.xls

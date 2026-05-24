@@ -337,6 +337,237 @@ def metric_card_rows(title: str, payload: dict) -> list[tuple[str, str, Any]]:
     ]
 
 
+def mixed_module_detail_html(detail: dict) -> str:
+    profile = detail.get("mixedDegreeProfile") or {}
+    if not profile:
+        return (
+            '<div class="detail-card mixed-module-empty">'
+            "<h3>混改程度评分明细</h3>"
+            "<p>暂无混改结构明细，已回退展示基础指标证据。</p>"
+            "</div>"
+        )
+    return (
+        '<div class="mixed-module-layout">'
+        f"{mixed_score_breakdown_html(profile)}"
+        f"{mixed_shareholder_panel_html(profile)}"
+        "</div>"
+    )
+
+
+def mixed_score_breakdown_html(profile: dict) -> str:
+    items = profile.get("scoreItems", [])
+    progress_rows = "".join(mixed_score_progress_row_html(item) for item in items)
+    table_rows = "".join(
+        "<tr>"
+        f"<td>{h(item.get('label', ''))}</td>"
+        f"<td>{format_number(item.get('score'), 1)}/{format_number(item.get('max'), 0)}</td>"
+        f"<td>{format_number(item.get('percent'), 1)}%</td>"
+        f"<td>{h(item.get('description', ''))}</td>"
+        "</tr>"
+        for item in items
+    )
+    metrics = profile.get("structureMetrics", {})
+    metric_chips = "".join(
+        f'<span>{h(label)} <strong>{h(value)}</strong></span>'
+        for label, value in [
+            ("非国有资本", f"{format_number(metrics.get('nonStateRatio'), 1)}%"),
+            ("股东类型", format_number(metrics.get("diversity"), 0)),
+            ("前十集中度", f"{format_number(metrics.get('ownershipConcentration'), 1)}%"),
+        ]
+    )
+    return (
+        '<section class="detail-card mixed-breakdown-card">'
+        "<h3>指标拆解与得分依据</h3>"
+        '<p class="mixed-panel-copy">五项指标共同构成混改程度评分，非国企可理解为混合股权结构成熟度与外部资本参与程度。</p>'
+        f'<div class="mixed-score-lines">{progress_rows}</div>'
+        f'<div class="mixed-metric-chips">{metric_chips}</div>'
+        '<table class="mixed-data-table">'
+        "<thead><tr><th>指标</th><th>得分</th><th>完成度</th><th>判断说明</th></tr></thead>"
+        f"<tbody>{table_rows}</tbody>"
+        "</table>"
+        "</section>"
+    )
+
+
+MIXED_SCORE_ICON_BY_LABEL = {
+    "非国有资本进入程度": "capital",
+    "股权结构多样性": "diversity",
+    "股权制衡程度": "balance",
+    "股权融合程度": "integration",
+    "股权开放治理程度": "governance",
+}
+
+
+def mixed_score_icon_svg(icon_key: str) -> str:
+    icons = {
+        "capital": (
+            '<path d="M4 9h16" />'
+            '<path d="M6 9v8" />'
+            '<path d="M10 9v8" />'
+            '<path d="M14 9v8" />'
+            '<path d="M18 9v8" />'
+            '<path d="M3 19h18" />'
+            '<path d="M12 4 4 8h16l-8-4Z" />'
+        ),
+        "diversity": (
+            '<circle cx="9" cy="8" r="3" />'
+            '<circle cx="16.5" cy="9.5" r="2.5" />'
+            '<path d="M3.5 18c.9-3 2.9-4.5 5.5-4.5s4.6 1.5 5.5 4.5" />'
+            '<path d="M13.5 15.2c.8-.8 1.8-1.2 3-1.2 2.1 0 3.7 1.2 4.4 3.6" />'
+        ),
+        "balance": (
+            '<path d="M12 4v16" />'
+            '<path d="M5 7h14" />'
+            '<path d="m6 7-3 6h6L6 7Z" />'
+            '<path d="m18 7-3 6h6l-3-6Z" />'
+            '<path d="M8 20h8" />'
+        ),
+        "integration": (
+            '<path d="M9 4h6v5h5v6h-5v5H9v-5H4V9h5V4Z" />'
+            '<path d="M9 9h6v6H9z" />'
+        ),
+        "governance": (
+            '<path d="M12 3 5 6v5c0 4.3 2.8 7.4 7 9 4.2-1.6 7-4.7 7-9V6l-7-3Z" />'
+            '<path d="m9.5 12 1.7 1.7 3.6-4" />'
+        ),
+    }
+    paths = icons.get(icon_key, icons["capital"])
+    return f'<svg class="mixed-score-symbol" viewBox="0 0 24 24" aria-hidden="true">{paths}</svg>'
+
+
+def mixed_score_progress_row_html(item: dict) -> str:
+    percent = clamp_percent(item.get("percent", 0))
+    score = format_number(item.get("score"), 1)
+    max_score = format_number(item.get("max"), 0)
+    icon_key = MIXED_SCORE_ICON_BY_LABEL.get(str(item.get("label", "")), "capital")
+    return (
+        '<div class="mixed-score-line">'
+        f'<div class="mixed-score-icon mixed-score-icon-{icon_key}" aria-hidden="true">'
+        f"{mixed_score_icon_svg(icon_key)}"
+        "</div>"
+        '<div class="mixed-score-main">'
+        '<div class="mixed-score-meta">'
+        f'<strong>{h(item.get("label", ""))}</strong>'
+        f"<span>{percent:.1f}%<em>{score}/{max_score}</em></span>"
+        "</div>"
+        '<div class="mixed-progress-track">'
+        f'<span style="width:{percent:.1f}%;"></span>'
+        "</div>"
+        "</div>"
+        "</div>"
+    )
+
+
+def mixed_shareholder_panel_html(profile: dict) -> str:
+    shareholders = profile.get("shareholders", [])
+    shareholder_rows = "".join(mixed_shareholder_row_html(item) for item in shareholders)
+    if not shareholder_rows:
+        shareholder_rows = '<tr><td colspan="5" class="mixed-empty-cell">暂无股东结构明细</td></tr>'
+    return (
+        '<section class="detail-card mixed-shareholder-card">'
+        "<h3>主要股东结构名单</h3>"
+        '<p class="mixed-panel-copy">展示前十大股东、持股比例、股东性质与结构分类，用于支撑混改程度判断。</p>'
+        '<div class="mixed-table-scroll mixed-shareholder-scroll">'
+        '<table class="mixed-data-table mixed-shareholder-table">'
+        "<colgroup>"
+        '<col class="mixed-shareholder-col-rank">'
+        '<col class="mixed-shareholder-col-name">'
+        '<col class="mixed-shareholder-col-ratio">'
+        '<col class="mixed-shareholder-col-nature">'
+        '<col class="mixed-shareholder-col-category">'
+        "</colgroup>"
+        "<thead><tr><th>序号</th><th>股东名称</th><th>持股比例</th><th>股东性质</th><th>类别</th></tr></thead>"
+        f"<tbody>{shareholder_rows}</tbody>"
+        "</table>"
+        "</div>"
+        '<h3 class="mixed-subtitle">股东类别占比</h3>'
+        f"{mixed_holder_stack_html(profile.get('holderGroups', []))}"
+        '<div class="mixed-insight-grid">'
+        f"{mixed_note_box_html('自动结构解读', profile.get('structureNotes', []))}"
+        f"{mixed_signal_tags_html(profile.get('signalTags', []))}"
+        "</div>"
+        "</section>"
+    )
+
+
+def mixed_shareholder_row_html(item: dict) -> str:
+    holder_name = h(item.get("name", ""))
+    holder_nature = h(report_value(item.get("nature", "")))
+    holder_group = h(report_value(item.get("holderGroupLabel", "")))
+    return (
+        "<tr>"
+        f"<td>{h(item.get('rank', ''))}</td>"
+        f'<td><span class="mixed-holder-name" title="{holder_name}">'
+        f'<span class="mixed-holder-name-text">{holder_name}</span>'
+        "</span></td>"
+        f"<td>{format_number(item.get('ratio'), 2)}%</td>"
+        f'<td><span class="mixed-holder-compact" title="{holder_nature}">{holder_nature}</span></td>'
+        f'<td><span class="mixed-holder-compact" title="{holder_group}">{holder_group}</span></td>'
+        "</tr>"
+    )
+
+
+def mixed_holder_stack_html(groups: list[dict]) -> str:
+    if not groups:
+        return '<div class="mixed-holder-empty">暂无股东类别占比</div>'
+    segments = []
+    legend = []
+    for group in groups:
+        percentage = clamp_percent(group.get("percentage", 0))
+        color = h(group.get("color", "#667085"))
+        label = h(group.get("label", ""))
+        value = f"{format_number(percentage, 2)}%"
+        content = value if percentage >= 7 else ""
+        segments.append(
+            f'<span class="mixed-holder-segment" style="width:{percentage:.2f}%;background:{color};">{content}</span>'
+        )
+        legend.append(f'<span><i style="background:{color};"></i>{label} {value}</span>')
+    return (
+        f'<div class="mixed-holder-stack">{"".join(segments)}</div>'
+        f'<div class="mixed-holder-legend">{"".join(legend)}</div>'
+    )
+
+
+def mixed_note_box_html(title: str, notes: list[str]) -> str:
+    if not notes:
+        notes = ["暂无结构解读"]
+    items = "".join(f"<li>{h(item)}</li>" for item in notes)
+    return (
+        '<div class="mixed-note-box">'
+        f"<h4>{h(title)}</h4>"
+        f"<ul>{items}</ul>"
+        "</div>"
+    )
+
+
+def mixed_signal_tags_html(tags: list[str]) -> str:
+    if not tags:
+        tags = ["持续观察"]
+    tag_html = "".join(f"<span>{h(tag)}</span>" for tag in tags)
+    return (
+        '<div class="mixed-note-box">'
+        "<h4>自动混改信号标签</h4>"
+        f'<div class="mixed-signal-tags">{tag_html}</div>'
+        "</div>"
+    )
+
+
+def format_number(value: Any, digits: int = 1) -> str:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        number = 0.0
+    return f"{number:.{digits}f}"
+
+
+def clamp_percent(value: Any) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        number = 0.0
+    return max(0.0, min(100.0, number))
+
+
 def inject_css() -> None:
     st.markdown(
         """
@@ -1366,6 +1597,419 @@ def inject_css() -> None:
           border-radius: 14px;
           background: rgba(255, 255, 255, 0.52);
         }
+        .mixed-module-layout {
+          position: relative;
+          display: grid;
+          grid-template-columns: minmax(280px, 0.72fr) minmax(0, 1.28fr);
+          gap: 26px;
+          align-items: start;
+          isolation: isolate;
+        }
+        .mixed-module-layout::before {
+          content: "";
+          position: absolute;
+          inset: -14px -18px auto -18px;
+          height: 210px;
+          border-radius: 28px;
+          background:
+            radial-gradient(circle at 12% 14%, rgba(37, 99, 235, 0.09), transparent 32%),
+            radial-gradient(circle at 88% 20%, rgba(15, 170, 165, 0.10), transparent 34%);
+          pointer-events: none;
+          z-index: -1;
+        }
+        .mixed-breakdown-card,
+        .mixed-shareholder-card {
+          margin-bottom: 22px;
+          min-width: 0;
+          box-sizing: border-box;
+          max-width: 100%;
+          position: relative;
+          overflow: hidden;
+          border-color: rgba(148, 163, 184, 0.24);
+          background:
+            linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(255, 255, 255, 0.82)),
+            radial-gradient(circle at 0 0, rgba(37, 99, 235, 0.07), transparent 26%);
+          box-shadow:
+            0 26px 62px rgba(15, 23, 42, 0.10),
+            0 1px 0 rgba(255, 255, 255, 0.82) inset;
+        }
+        .mixed-breakdown-card::before,
+        .mixed-shareholder-card::before {
+          content: "";
+          position: absolute;
+          inset: 0 0 auto 0;
+          height: 4px;
+          background: linear-gradient(90deg, #2563eb, #42c3e6 52%, #fb5a1e);
+        }
+        .mixed-shareholder-card::before {
+          background: linear-gradient(90deg, #2563eb, #7c5ce7 58%, #fb5a1e);
+        }
+        .mixed-shareholder-card {
+          padding-bottom: 22px;
+        }
+        .mixed-shareholder-card > h3:first-child {
+          margin-bottom: 12px;
+        }
+        .mixed-shareholder-card .mixed-panel-copy {
+          max-width: 720px;
+          margin-bottom: 14px;
+        }
+        .mixed-panel-copy {
+          color: #475569;
+          font-size: 13px;
+          line-height: 1.8;
+          margin: -4px 0 20px 0;
+        }
+        .mixed-score-lines {
+          display: grid;
+          gap: 15px;
+          margin-bottom: 20px;
+        }
+        .mixed-score-line {
+          display: grid;
+          grid-template-columns: 40px minmax(0, 1fr);
+          gap: 13px;
+          align-items: center;
+        }
+        .mixed-score-icon {
+          width: 40px;
+          height: 40px;
+          border-radius: 999px;
+          display: grid;
+          place-items: center;
+          color: #2563eb;
+          background: linear-gradient(145deg, #eaf2ff, #f8fbff);
+          box-shadow:
+            0 8px 18px rgba(37, 99, 235, 0.14),
+            0 0 0 1px rgba(37, 99, 235, 0.10) inset;
+        }
+        .mixed-score-symbol {
+          width: 22px;
+          height: 22px;
+          fill: none;
+          stroke: currentColor;
+          stroke-width: 2.1;
+          stroke-linecap: round;
+          stroke-linejoin: round;
+        }
+        .mixed-score-icon-capital,
+        .mixed-score-icon-diversity,
+        .mixed-score-icon-balance {
+          color: #2563eb;
+          background: linear-gradient(145deg, #eaf2ff, #f8fbff);
+        }
+        .mixed-score-icon-integration {
+          color: #0faaa5;
+          background: #e8f8f5;
+          box-shadow:
+            0 8px 18px rgba(15, 170, 165, 0.16),
+            0 0 0 1px rgba(15, 170, 165, 0.12) inset;
+        }
+        .mixed-score-icon-governance {
+          color: #7c5ce7;
+          background: #f0edff;
+          box-shadow:
+            0 8px 18px rgba(124, 92, 231, 0.15),
+            0 0 0 1px rgba(124, 92, 231, 0.12) inset;
+        }
+        .mixed-score-main {
+          min-width: 0;
+        }
+        .mixed-score-meta {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          gap: 16px;
+          color: #344054;
+          font-size: 14px;
+          margin-bottom: 8px;
+        }
+        .mixed-score-meta strong {
+          overflow-wrap: anywhere;
+          line-height: 1.35;
+        }
+        .mixed-score-meta span {
+          display: grid;
+          justify-items: end;
+          color: #1d4ed8;
+          font-weight: 900;
+          white-space: nowrap;
+          line-height: 1.05;
+        }
+        .mixed-score-meta span em {
+          margin-top: 4px;
+          color: #64748b;
+          font-size: 11px;
+          font-style: normal;
+          font-weight: 800;
+        }
+        .mixed-progress-track {
+          height: 10px;
+          border-radius: 999px;
+          background: #e8edf3;
+          overflow: hidden;
+          box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.06);
+        }
+        .mixed-progress-track span {
+          display: block;
+          height: 100%;
+          border-radius: 999px;
+          background: linear-gradient(90deg, #2563eb, #42c3e6);
+        }
+        .mixed-score-line:nth-child(4) .mixed-progress-track span {
+          background: linear-gradient(90deg, #0faaa5, #4ddbd1);
+        }
+        .mixed-metric-chips {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 9px;
+          margin: 8px 0 20px 0;
+        }
+        .mixed-metric-chips span {
+          border: 1px solid rgba(16, 24, 32, 0.10);
+          background: rgba(248, 250, 252, 0.88);
+          border-radius: 999px;
+          padding: 7px 11px;
+          color: #667085;
+          font-size: 12px;
+          font-weight: 700;
+        }
+        .mixed-metric-chips strong {
+          color: var(--ink);
+          margin-left: 4px;
+        }
+        .mixed-data-table {
+          width: 100%;
+          box-sizing: border-box;
+          border-collapse: separate;
+          border-spacing: 0;
+          overflow: hidden;
+          border: 1px solid rgba(148, 163, 184, 0.22);
+          border-radius: 14px;
+          background: rgba(255, 255, 255, 0.84);
+          font-size: 12.5px;
+        }
+        .mixed-data-table th,
+        .mixed-data-table td {
+          border-bottom: 1px solid rgba(148, 163, 184, 0.20);
+          border-right: 1px solid rgba(148, 163, 184, 0.16);
+          padding: 10px 10px;
+          vertical-align: middle;
+          color: #344054;
+          line-height: 1.45;
+        }
+        .mixed-data-table th {
+          color: #1e293b;
+          background: linear-gradient(180deg, rgba(248, 250, 252, 0.96), rgba(241, 245, 249, 0.82));
+          font-weight: 800;
+          white-space: nowrap;
+        }
+        .mixed-data-table tr:last-child td {
+          border-bottom: 0;
+        }
+        .mixed-data-table td:last-child,
+        .mixed-data-table th:last-child {
+          border-right: 0;
+        }
+        .mixed-shareholder-table td:nth-child(2) {
+          color: var(--ink);
+          font-weight: 700;
+        }
+        .mixed-shareholder-table {
+          table-layout: fixed;
+          width: 100%;
+          min-width: 0;
+          font-size: 11.8px;
+        }
+        .mixed-shareholder-col-rank { width: 52px; }
+        .mixed-shareholder-col-name { width: auto; }
+        .mixed-shareholder-col-ratio { width: 86px; }
+        .mixed-shareholder-col-nature { width: 128px; }
+        .mixed-shareholder-col-category { width: 132px; }
+        .mixed-shareholder-table th,
+        .mixed-shareholder-table td {
+          padding: 6px 8px;
+          line-height: 1.22;
+        }
+        .mixed-shareholder-table thead th {
+          position: sticky;
+          top: 0;
+          z-index: 2;
+          box-shadow: 0 1px 0 rgba(148, 163, 184, 0.20);
+        }
+        .mixed-shareholder-table td:first-child,
+        .mixed-shareholder-table td:nth-child(3),
+        .mixed-shareholder-table td:nth-child(4),
+        .mixed-shareholder-table td:nth-child(5) {
+          text-align: center;
+          white-space: nowrap;
+          font-variant-numeric: tabular-nums;
+        }
+        .mixed-shareholder-table tbody tr {
+          height: var(--mixed-shareholder-row-height);
+        }
+        .mixed-holder-name,
+        .mixed-holder-compact {
+          display: block;
+          max-width: 100%;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .mixed-holder-name {
+          width: 100%;
+          max-width: 100%;
+          overflow-x: auto;
+          overflow-y: hidden;
+          -webkit-overflow-scrolling: touch;
+          scrollbar-width: thin;
+          scrollbar-color: rgba(37, 99, 235, 0.32) transparent;
+          text-overflow: clip;
+          color: var(--ink);
+          cursor: ew-resize;
+          font-weight: 850;
+        }
+        .mixed-holder-name-text {
+          display: inline-block;
+          min-width: max-content;
+          padding-right: 14px;
+        }
+        .mixed-holder-name::-webkit-scrollbar {
+          height: 4px;
+        }
+        .mixed-holder-name::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        .mixed-holder-name::-webkit-scrollbar-thumb {
+          background: rgba(37, 99, 235, 0.28);
+          border-radius: 999px;
+        }
+        .mixed-table-scroll {
+          width: 100%;
+          max-width: 100%;
+          min-width: 0;
+          border-radius: 12px;
+          margin-top: 4px;
+          overscroll-behavior-x: contain;
+          scrollbar-width: thin;
+          scrollbar-color: rgba(37, 99, 235, 0.38) rgba(226, 232, 240, 0.72);
+        }
+        .mixed-shareholder-scroll {
+          --mixed-shareholder-row-height: 34px;
+          --mixed-shareholder-head-height: 36px;
+          max-height: calc(var(--mixed-shareholder-head-height) + (var(--mixed-shareholder-row-height) * 7));
+          overflow-y: auto;
+          overflow-x: hidden;
+          border: 1px solid rgba(148, 163, 184, 0.18);
+          background: rgba(255, 255, 255, 0.76);
+        }
+        .mixed-shareholder-scroll .mixed-shareholder-table {
+          border: 0;
+          border-radius: 12px;
+        }
+        .mixed-table-scroll::-webkit-scrollbar {
+          width: 8px;
+          height: 8px;
+        }
+        .mixed-table-scroll::-webkit-scrollbar-track {
+          background: rgba(226, 232, 240, 0.72);
+          border-radius: 999px;
+        }
+        .mixed-table-scroll::-webkit-scrollbar-thumb {
+          background: rgba(37, 99, 235, 0.38);
+          border-radius: 999px;
+        }
+        .mixed-empty-cell {
+          text-align: center;
+          color: var(--muted) !important;
+          padding: 24px !important;
+        }
+        .mixed-subtitle {
+          margin-top: 16px !important;
+          margin-bottom: 12px !important;
+          font-size: 20px !important;
+        }
+        .mixed-holder-stack {
+          display: flex;
+          height: 42px;
+          overflow: hidden;
+          border-radius: 12px;
+          background: #eef2f6;
+          border: 1px solid rgba(148, 163, 184, 0.18);
+          box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.05);
+        }
+        .mixed-holder-segment {
+          display: grid;
+          place-items: center;
+          color: #ffffff;
+          font-size: 13px;
+          font-weight: 900;
+          min-width: 0;
+          white-space: nowrap;
+          box-shadow: inset -1px 0 rgba(255, 255, 255, 0.54);
+        }
+        .mixed-holder-legend {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 10px 16px;
+          margin: 13px 0 20px 0;
+          color: #475467;
+          font-size: 12px;
+        }
+        .mixed-holder-legend span {
+          display: inline-flex;
+          align-items: center;
+          gap: 7px;
+        }
+        .mixed-holder-legend i {
+          width: 9px;
+          height: 9px;
+          border-radius: 999px;
+          display: inline-block;
+        }
+        .mixed-holder-empty,
+        .mixed-module-empty p {
+          color: var(--muted);
+          line-height: 1.7;
+        }
+        .mixed-insight-grid {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) minmax(230px, 0.86fr);
+          gap: 16px;
+        }
+        .mixed-note-box {
+          border: 1px solid rgba(148, 163, 184, 0.22);
+          background: rgba(255, 255, 255, 0.78);
+          border-radius: 16px;
+          padding: 16px 18px;
+        }
+        .mixed-note-box h4 {
+          margin: 0 0 10px 0;
+          color: var(--ink);
+          font-size: 16px;
+        }
+        .mixed-note-box ul {
+          margin: 0;
+          padding-left: 18px;
+          color: #344054;
+          line-height: 1.85;
+          font-size: 13px;
+        }
+        .mixed-signal-tags {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 10px 11px;
+        }
+        .mixed-signal-tags span {
+          border: 1px solid rgba(37, 99, 235, 0.26);
+          background: linear-gradient(180deg, #f7fbff, #eef5ff);
+          color: #1d4ed8;
+          border-radius: 10px;
+          padding: 8px 12px;
+          font-size: 13px;
+          font-weight: 800;
+          box-shadow: 0 8px 18px rgba(37, 99, 235, 0.08);
+        }
         div[data-testid="stButton"] > button {
           border-radius: 999px;
           border: 1px solid rgba(16, 24, 32, 0.16);
@@ -1400,7 +2044,7 @@ def inject_css() -> None:
             margin-bottom: 18px;
           }
           .rule-hero-grid, .report-hero-grid, .module-hero-grid, .evidence-grid, .module-detail-grid, .level-grid,
-          .mixed-status-head, .mixed-status-grid, .mixed-donut-wrap {
+          .mixed-status-head, .mixed-status-grid, .mixed-donut-wrap, .mixed-module-layout, .mixed-insight-grid {
             grid-template-columns: 1fr;
           }
           .report-stats, .rule-stat-row, .normalization-flow, .mixed-status-stats, .mixed-metrics-chart {
@@ -1418,6 +2062,20 @@ def inject_css() -> None:
           .mixed-hist-bar span,
           .mixed-hist-bar em {
             display: none;
+          }
+          .mixed-data-table {
+            font-size: 12px;
+          }
+          .mixed-data-table th,
+          .mixed-data-table td {
+            padding: 8px 7px;
+          }
+          .mixed-shareholder-scroll {
+            overflow-x: auto;
+          }
+          .mixed-table-scroll .mixed-shareholder-table {
+            min-width: 620px;
+            white-space: nowrap;
           }
           .hero-signal-panel {
             grid-template-columns: minmax(142px, 170px) 136px;
@@ -2161,16 +2819,12 @@ def render_module_page() -> None:
         unsafe_allow_html=True,
     )
 
-    left, right = st.columns([1.2, 1], gap="large")
-    with left:
-        st.markdown('<div class="detail-card"><h3>指标证据表</h3>', unsafe_allow_html=True)
-        st.dataframe(detail["rows"], width="stretch", hide_index=True)
-        st.markdown("</div>", unsafe_allow_html=True)
-    with right:
-        st.markdown('<div class="detail-card"><h3>关联说明与信号</h3>', unsafe_allow_html=True)
-        for item in detail["notes"]:
-            st.markdown(f'<div class="note-item"><span class="note-dot">i</span>{h(item)}</div>', unsafe_allow_html=True)
-        st.markdown("</div>", unsafe_allow_html=True)
+    if module_key == "mixed":
+        st.markdown(mixed_module_detail_html(detail), unsafe_allow_html=True)
+        if not detail.get("mixedDegreeProfile"):
+            render_generic_module_detail(detail)
+    else:
+        render_generic_module_detail(detail)
 
     st.markdown('<div class="section-kicker">Module Switch</div>', unsafe_allow_html=True)
     cols = st.columns(5)
@@ -2181,6 +2835,19 @@ def render_module_page() -> None:
         with cols[index]:
             if st.button(label, key=f"jump-module-{key}", width="stretch"):
                 navigate("module", selected_company_code=code, selected_module=key)
+
+
+def render_generic_module_detail(detail: dict) -> None:
+    left, right = st.columns([1.2, 1], gap="large")
+    with left:
+        st.markdown('<div class="detail-card"><h3>指标证据表</h3>', unsafe_allow_html=True)
+        st.dataframe(detail["rows"], width="stretch", hide_index=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+    with right:
+        st.markdown('<div class="detail-card"><h3>关联说明与信号</h3>', unsafe_allow_html=True)
+        for item in detail["notes"]:
+            st.markdown(f'<div class="note-item"><span class="note-dot">i</span>{h(item)}</div>', unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
 
 
 def render_method_page() -> None:
