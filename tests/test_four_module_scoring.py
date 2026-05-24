@@ -4,6 +4,7 @@ from pathlib import Path
 
 import openpyxl
 
+import backend.app.scoring.engine as scoring_engine
 from backend.app.scoring.engine import ScoringEngine
 
 
@@ -205,6 +206,14 @@ def test_scoring_engine_exposes_governance_trend_from_final_scores(tmp_path):
         {"year": 2024, "score": 80.0, "rawScore": 20.0, "date": "2024-12-31"},
         {"year": 2025, "score": 85.0, "rawScore": 21.25, "date": "2025-09-30"},
     ]
+
+
+def test_configured_source_root_falls_back_to_project_root_for_cloud(monkeypatch, tmp_path):
+    monkeypatch.setattr(scoring_engine, "get_setting", lambda name, default="": "")
+    monkeypatch.setattr(scoring_engine, "DEFAULT_SOURCE_ROOT", str(tmp_path / "missing"))
+    monkeypatch.setattr(scoring_engine, "PROJECT_SOURCE_ROOT", tmp_path)
+
+    assert scoring_engine.configured_source_root() == str(tmp_path)
 
 
 def test_scoring_engine_returns_zero_scores_when_raw_company_is_missing(tmp_path):

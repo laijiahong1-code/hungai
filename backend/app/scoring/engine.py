@@ -12,6 +12,7 @@ from .region import build_region_scores
 
 
 DEFAULT_SOURCE_ROOT = r"C:\Users\赖宏\Desktop\公司混改系统"
+PROJECT_SOURCE_ROOT = Path(__file__).resolve().parents[3]
 
 
 class ScoringEngine:
@@ -60,7 +61,13 @@ class ScoringEngine:
 
 
 def configured_source_root() -> str:
-    return get_setting("MIXED_REFORM_SOURCE_ROOT", DEFAULT_SOURCE_ROOT)
+    configured = get_setting("MIXED_REFORM_SOURCE_ROOT")
+    if configured:
+        return configured
+    default_root = Path(DEFAULT_SOURCE_ROOT)
+    if default_root.exists():
+        return str(default_root)
+    return str(PROJECT_SOURCE_ROOT)
 
 
 def potential_level(score: float) -> str:

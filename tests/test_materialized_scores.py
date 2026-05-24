@@ -264,6 +264,53 @@ def test_company_detail_supplements_materialized_mixed_degree_profile(monkeypatc
     assert detail["mixedDegreeProfile"] == profile
 
 
+def test_company_detail_supplements_missing_materialized_governance_trend(monkeypatch):
+    docs = [sample_record()]
+    docs[0].update(
+        {
+            "code": "600001",
+            "shortName": docs[0]["short_name"],
+            "score": 82.4,
+            "totalScore": 82.4,
+            "module_scores": {"finance": 70.0, "equity": 82.4, "region": 80.0, "mixed": 75.0},
+            "modules": {"finance": 70.0, "equity": 82.4, "region": 80.0, "mixed": 75.0},
+            "module_details": {},
+            "raw_scores": {},
+            "vetoReasons": [],
+        }
+    )
+
+    trend = [
+        {"year": 2023, "score": 96.0, "rawScore": 24.0, "date": "2023-12-31"},
+        {"year": 2024, "score": 98.0, "rawScore": 24.5, "date": "2024-12-31"},
+    ]
+
+    class FakeDatabase:
+        def has_collection(self, collection):
+            return collection == "company_scores"
+
+        def find_query(self, collection, query=None, sort=None, limit=0, projection=None):
+            assert collection == "company_scores"
+            return docs[:limit] if limit else docs
+
+        def count_documents(self, collection, query=None):
+            return 0
+
+        def distinct(self, collection, key, query=None):
+            return ["江西省"]
+
+    monkeypatch.setattr(services, "default_database", lambda: FakeDatabase())
+    monkeypatch.setattr(
+        services,
+        "get_scoring_result",
+        lambda stock_code: {"governanceTrend": trend} if stock_code == "600001" else {},
+    )
+
+    detail = services.get_company_detail("600001")
+
+    assert detail["governanceTrend"] == trend
+
+
 def test_company_detail_seeds_top_shareholder_collection_when_mongo_missing(monkeypatch):
     docs = services.build_company_score_documents([sample_record()])
     top_shareholder = {

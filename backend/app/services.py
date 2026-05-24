@@ -368,6 +368,21 @@ def _apply_mixed_degree_profile_supplement(detail: dict) -> dict:
     return detail
 
 
+def _apply_governance_trend_supplement(detail: dict) -> dict:
+    if detail.get("governanceTrend") or detail.get("governance_trend"):
+        return detail
+    stock_code = str(detail.get("stock_code") or detail.get("code") or "")
+    if not stock_code:
+        detail.setdefault("governanceTrend", [])
+        return detail
+    try:
+        trend = get_scoring_result(stock_code).get("governanceTrend", [])
+    except Exception:
+        trend = []
+    detail["governanceTrend"] = [item.copy() for item in trend]
+    return detail
+
+
 def _apply_audit_supplement(detail: dict) -> dict:
     stock_code = str(detail.get("stock_code") or detail.get("code") or "")
     audit = _audit_supplements_by_stock().get(stock_code)
@@ -406,6 +421,7 @@ def _apply_roe_supplement(detail: dict) -> dict:
 def _apply_detail_supplements(detail: dict) -> dict:
     detail = _apply_reform_profile_supplement(detail)
     detail = _apply_mixed_degree_profile_supplement(detail)
+    detail = _apply_governance_trend_supplement(detail)
     detail = _apply_top_shareholder_supplement(detail)
     detail = _apply_roe_supplement(detail)
     return _apply_audit_supplement(detail)

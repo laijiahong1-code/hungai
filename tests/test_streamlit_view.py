@@ -423,7 +423,8 @@ def test_governance_trend_chart_html_uses_three_year_scores():
     assert "2023年" in html
     assert "2024年" in html
     assert "2025年" in html
-    assert "85.0" in html
+    assert "85/100" in html
+    assert "72/100" in html
 
 
 def test_governance_trend_chart_html_handles_missing_data():

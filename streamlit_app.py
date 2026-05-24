@@ -571,6 +571,11 @@ def clamp_percent(value: Any) -> float:
     return max(0.0, min(100.0, number))
 
 
+def percent_score_text(value: Any) -> str:
+    score_text = f"{clamp_percent(value):.1f}".rstrip("0").rstrip(".")
+    return f"{score_text}/100"
+
+
 FINANCE_RADAR_METRICS = (
     "Altman Z",
     "资产负债率",
@@ -749,8 +754,8 @@ def governance_trend_chart_html(trend: list[dict]) -> str:
     points = [xy(index, float(row.get("score", 0))) for index, row in enumerate(rows)]
     point_text = " ".join(f"{x:.1f},{y:.1f}" for x, y in points)
     circles = "".join(
-        f'<circle cx="{x:.1f}" cy="{y:.1f}" r="4.6"><title>{int(row.get("year", 0))}年：{float(row.get("score", 0)):.1f}</title></circle>'
-        f'<text class="governance-score-label" x="{x:.1f}" y="{y - 10:.1f}">{float(row.get("score", 0)):.1f}</text>'
+        f'<circle cx="{x:.1f}" cy="{y:.1f}" r="4.6"><title>{int(row.get("year", 0))}年：{percent_score_text(row.get("score", 0))}</title></circle>'
+        f'<text class="governance-score-label" x="{x:.1f}" y="{y - 10:.1f}">{percent_score_text(row.get("score", 0))}</text>'
         for (x, y), row in zip(points, rows)
     )
     year_labels = "".join(
@@ -760,7 +765,7 @@ def governance_trend_chart_html(trend: list[dict]) -> str:
     table_rows = "".join(
         "<tr>"
         f"<td>{int(row.get('year', 0))}年</td>"
-        f"<td>{float(row.get('score', 0)):.1f}</td>"
+        f"<td>{percent_score_text(row.get('score', 0))}</td>"
         f"<td>{h(row.get('date', ''))}</td>"
         "</tr>"
         for row in rows
