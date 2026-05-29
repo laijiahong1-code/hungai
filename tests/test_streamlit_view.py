@@ -320,6 +320,12 @@ def test_equity_metric_card_rows_include_top_shareholder_name_and_ratio():
     assert ("第一大股东持股", "27.18%", 27.18) in rows
 
 
+def test_equity_metric_card_rows_omit_overdue_debt():
+    rows = streamlit_app.metric_card_rows("股权与信用", sample_company()["equity"])
+
+    assert all(label != "债务逾期" for label, _, _ in rows)
+
+
 def test_data_source_label_uses_streamlit_secret_mongodb_uri(monkeypatch):
     monkeypatch.delenv("MONGODB_URI", raising=False)
     monkeypatch.setattr(
@@ -348,7 +354,9 @@ def test_reform_status_cards_html_contains_company_profile_labels():
     assert "企业状态" in html
     assert "混改状态" in html
     assert ">国企<" in html
+    assert "State-owned enterprise" in html
     assert "正在进行混改" in html
+    assert "Mixed reform in progress" in html
     assert "是否国企" not in html
     assert "是否混改" not in html
 
@@ -367,8 +375,34 @@ def test_reform_status_cards_html_maps_private_company_copy():
     assert 'class="reform-info-card status-potential"' in html
     assert "企业状态" in html
     assert ">非国企<" in html
+    assert "Non-state-owned enterprise" in html
     assert "混改状态" in html
     assert "潜在混改企业" in html
+    assert "Potential mixed-reform target" in html
+
+
+@pytest.mark.parametrize(
+    ("mixed_label", "english_copy"),
+    [
+        ("已经完成混改", "Mixed reform completed"),
+        ("正在进行混改", "Mixed reform in progress"),
+        ("潜在混改企业", "Potential mixed-reform target"),
+        ("尚未发生混改", "No mixed reform yet"),
+    ],
+)
+def test_reform_status_cards_html_maps_mixed_status_english_copy(mixed_label, english_copy):
+    company = sample_company()
+    company["reformProfile"] = {
+        "isStateOwned": True,
+        "stateOwnedLabel": "是",
+        "mixedStatusLabel": mixed_label,
+        "source": "status_csv",
+    }
+
+    html = streamlit_app.reform_status_cards_html(company)
+
+    assert english_copy in html
+    assert "Mixed reform</div>" not in html
 
 
 def test_hero_signal_panel_groups_status_cards_with_score_card():
@@ -433,20 +467,20 @@ def test_governance_trend_chart_html_handles_missing_data():
     assert "暂无治理合规趋势数据" in html
 
 
-def test_governance_highlights_use_qwen_when_configured(monkeypatch):
+def test_governance_highlights_use_deepseek_when_configured(monkeypatch):
     detail = module_detail(sample_company(), "equity")
     monkeypatch.setattr(
         streamlit_app,
         "get_setting",
         lambda name, default="": {
-            "QWEN_API_KEY": "secret",
-            "QWEN_HIGHLIGHTS_ENABLED": "1",
+            "DEEPSEEK_API_KEY": "secret",
+            "DEEPSEEK_AI_ENABLED": "1",
         }.get(name, default),
         raising=False,
     )
     monkeypatch.setattr(
         streamlit_app,
-        "_request_qwen_governance_highlights",
+        "_request_deepseek_governance_highlights",
         lambda detail: ["模型判断：审计意见稳定，合规记录清晰。"],
         raising=False,
     )
@@ -454,11 +488,11 @@ def test_governance_highlights_use_qwen_when_configured(monkeypatch):
     html = streamlit_app.governance_highlights_html(detail)
 
     assert "模型判断：审计意见稳定，合规记录清晰。" in html
-    assert "Qwen生成" in html
+    assert "DeepSeek生成" in html
     assert "规则生成" not in html
 
 
-def test_qwen_governance_highlights_request_uses_nvidia_chat_completions(monkeypatch):
+def test_deepseek_governance_highlights_request_uses_deepseek_chat_completions(monkeypatch):
     detail = module_detail(sample_company(), "equity")
     captured = {}
 
@@ -491,29 +525,31 @@ def test_qwen_governance_highlights_request_uses_nvidia_chat_completions(monkeyp
         streamlit_app,
         "get_setting",
         lambda name, default="": {
-            "QWEN_API_KEY": "qwen-secret",
-            "QWEN_BASE_URL": "https://integrate.api.nvidia.com/v1",
-            "QWEN_MODEL": "qwen/qwen3-next-80b-a3b-instruct",
-            "QWEN_TIMEOUT_SECONDS": "7",
+            "DEEPSEEK_API_KEY": "deepseek-secret",
+            "DEEPSEEK_BASE_URL": "https://api.deepseek.com",
+            "DEEPSEEK_MODEL": "deepseek-chat",
+            "DEEPSEEK_TIMEOUT_SECONDS": "7",
         }.get(name, default),
         raising=False,
     )
     monkeypatch.setattr(streamlit_app.request, "urlopen", fake_urlopen)
-    if hasattr(streamlit_app, "QWEN_HIGHLIGHT_CACHE"):
-        streamlit_app.QWEN_HIGHLIGHT_CACHE.clear()
+    if hasattr(streamlit_app, "DEEPSEEK_HIGHLIGHT_CACHE"):
+        streamlit_app.DEEPSEEK_HIGHLIGHT_CACHE.clear()
 
-    items = streamlit_app._request_qwen_governance_highlights(detail)
+    items = streamlit_app._request_deepseek_governance_highlights(detail)
 
+    captured["request"].data.decode("ascii")
     payload = json.loads(captured["request"].data.decode("utf-8"))
-    assert captured["request"].full_url == "https://integrate.api.nvidia.com/v1/chat/completions"
-    assert captured["request"].get_header("Authorization") == "Bearer qwen-secret"
+    assert captured["request"].full_url == "https://api.deepseek.com/chat/completions"
+    assert captured["request"].get_header("Authorization") == "Bearer deepseek-secret"
+    assert captured["request"].get_header("Content-type") == "application/json; charset=utf-8"
     assert captured["timeout"] == 7.0
-    assert payload["model"] == "qwen/qwen3-next-80b-a3b-instruct"
+    assert payload["model"] == "deepseek-chat"
     assert payload["stream"] is False
     assert items == ["治理基础稳定", "审计质量良好"]
 
 
-def test_governance_highlights_fall_back_without_qwen_key(monkeypatch):
+def test_governance_highlights_fall_back_without_deepseek_key(monkeypatch):
     detail = module_detail(sample_company(), "equity")
     monkeypatch.setattr(streamlit_app, "get_setting", lambda name, default="": default, raising=False)
 
@@ -522,6 +558,211 @@ def test_governance_highlights_fall_back_without_qwen_key(monkeypatch):
     assert "规则生成" in html
     assert "质押风险可控" in html
     assert "治理合规得分连续改善" in html
+
+
+def test_company_risk_items_use_deepseek_when_configured(monkeypatch):
+    company = sample_company()
+    company["risks"] = ["static database risk"]
+    monkeypatch.setattr(
+        streamlit_app,
+        "get_setting",
+        lambda name, default="": {
+            "DEEPSEEK_API_KEY": "secret",
+            "DEEPSEEK_AI_ENABLED": "1",
+        }.get(name, default),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        streamlit_app,
+        "_request_deepseek_company_risks",
+        lambda company: ["AI risk: cash flow pressure"],
+        raising=False,
+    )
+
+    items, source = streamlit_app.company_risk_items(company)
+
+    assert items == ["AI risk: cash flow pressure"]
+    assert source == "AI评价"
+
+
+def test_company_risk_items_fall_back_without_deepseek_key(monkeypatch):
+    company = sample_company()
+    company["risks"] = ["static database risk"]
+    monkeypatch.setattr(streamlit_app, "get_setting", lambda name, default="": default, raising=False)
+
+    items, source = streamlit_app.company_risk_items(company)
+
+    assert items == ["static database risk"]
+    assert source == "规则/数据库"
+
+
+def test_company_risk_prompt_summary_includes_four_module_context():
+    summary = streamlit_app.company_risk_prompt_summary(sample_company())
+
+    for key, label, _ in streamlit_app.MODULE_LABELS:
+        assert key in summary
+        assert label in summary
+    assert "72.0" in summary
+    assert "Altman Z" in summary
+    assert "highlights" in summary
+    assert "risks" in summary
+
+
+def test_deepseek_company_risks_request_uses_deepseek_chat_completions(monkeypatch):
+    company = sample_company()
+    captured = {}
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+        def read(self):
+            return json.dumps(
+                {
+                    "choices": [
+                        {
+                            "message": {
+                                "content": "现金流承压\n治理信息仍需补充",
+                            }
+                        }
+                    ]
+                }
+            ).encode("utf-8")
+
+    def fake_urlopen(api_request, timeout):
+        captured["request"] = api_request
+        captured["timeout"] = timeout
+        return FakeResponse()
+
+    monkeypatch.setattr(
+        streamlit_app,
+        "get_setting",
+        lambda name, default="": {
+            "DEEPSEEK_API_KEY": "deepseek-secret",
+            "DEEPSEEK_BASE_URL": "https://api.deepseek.com",
+            "DEEPSEEK_MODEL": "deepseek-chat",
+            "DEEPSEEK_TIMEOUT_SECONDS": "7",
+        }.get(name, default),
+        raising=False,
+    )
+    monkeypatch.setattr(streamlit_app.request, "urlopen", fake_urlopen)
+    if hasattr(streamlit_app, "DEEPSEEK_RISK_CACHE"):
+        streamlit_app.DEEPSEEK_RISK_CACHE.clear()
+
+    items = streamlit_app._request_deepseek_company_risks(company)
+
+    captured["request"].data.decode("ascii")
+    payload = json.loads(captured["request"].data.decode("utf-8"))
+    assert captured["request"].full_url == "https://api.deepseek.com/chat/completions"
+    assert captured["request"].get_header("Authorization") == "Bearer deepseek-secret"
+    assert captured["request"].get_header("Content-type") == "application/json; charset=utf-8"
+    assert captured["timeout"] == 7.0
+    assert payload["model"] == "deepseek-chat"
+    assert payload["stream"] is False
+    assert "Altman Z" in payload["messages"][1]["content"]
+    assert items == ["现金流承压", "治理信息仍需补充"]
+
+
+def test_deepseek_company_risks_cache_reuses_same_summary(monkeypatch):
+    company = sample_company()
+    call_count = 0
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+        def read(self):
+            return json.dumps({"choices": [{"message": {"content": "区域适配存在不确定性"}}]}).encode("utf-8")
+
+    def fake_urlopen(api_request, timeout):
+        nonlocal call_count
+        call_count += 1
+        return FakeResponse()
+
+    monkeypatch.setattr(
+        streamlit_app,
+        "get_setting",
+        lambda name, default="": {
+            "DEEPSEEK_API_KEY": "deepseek-secret",
+            "DEEPSEEK_BASE_URL": "https://api.deepseek.com",
+            "DEEPSEEK_MODEL": "deepseek-chat",
+            "DEEPSEEK_TIMEOUT_SECONDS": "7",
+        }.get(name, default),
+        raising=False,
+    )
+    monkeypatch.setattr(streamlit_app.request, "urlopen", fake_urlopen)
+    if hasattr(streamlit_app, "DEEPSEEK_RISK_CACHE"):
+        streamlit_app.DEEPSEEK_RISK_CACHE.clear()
+
+    first = streamlit_app._request_deepseek_company_risks(company)
+    second = streamlit_app._request_deepseek_company_risks(company)
+
+    assert first == ["区域适配存在不确定性"]
+    assert second == first
+    assert call_count == 1
+
+
+def test_deepseek_company_risks_bypass_environment_proxy(monkeypatch):
+    company = sample_company()
+    captured = {}
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+        def read(self):
+            return json.dumps({"choices": [{"message": {"content": "代理绕过后生成"}}]}).encode("utf-8")
+
+    class FakeOpener:
+        def open(self, api_request, timeout):
+            captured["request"] = api_request
+            captured["timeout"] = timeout
+            return FakeResponse()
+
+    def fake_proxy_handler(proxies):
+        captured["proxies"] = proxies
+        return ("proxy_handler", proxies)
+
+    def fake_build_opener(*handlers):
+        captured["handlers"] = handlers
+        return FakeOpener()
+
+    monkeypatch.setattr(
+        streamlit_app,
+        "get_setting",
+        lambda name, default="": {
+            "DEEPSEEK_API_KEY": "deepseek-secret",
+            "DEEPSEEK_BASE_URL": "https://api.deepseek.com",
+            "DEEPSEEK_MODEL": "deepseek-chat",
+            "DEEPSEEK_TIMEOUT_SECONDS": "7",
+        }.get(name, default),
+        raising=False,
+    )
+    monkeypatch.setattr(streamlit_app.request, "ProxyHandler", fake_proxy_handler)
+    monkeypatch.setattr(streamlit_app.request, "build_opener", fake_build_opener)
+    if hasattr(streamlit_app, "DEEPSEEK_RISK_CACHE"):
+        streamlit_app.DEEPSEEK_RISK_CACHE.clear()
+
+    items = streamlit_app._request_deepseek_company_risks(company)
+
+    assert captured["proxies"] == {}
+    assert captured["handlers"] == (("proxy_handler", {}),)
+    assert items == ["代理绕过后生成"]
+
+
+def test_parse_highlight_lines_removes_ascii_and_fullwidth_numbering():
+    content = "1. 现金流承压\n２. 股权制衡不足\n3）区域协同弱"
+
+    assert streamlit_app.parse_highlight_lines(content) == ["现金流承压", "股权制衡不足", "区域协同弱"]
 
 
 def test_module_detail_equity_fallback_includes_top_shareholder_name():
@@ -534,6 +775,16 @@ def test_module_detail_equity_fallback_includes_top_shareholder_name():
 
     assert {"指标": "第一大股东", "数值": "深圳市地铁集团有限公司"} in detail["rows"]
     assert {"指标": "第一大股东持股", "数值": "27.18%"} in detail["rows"]
+    assert all(row["指标"] != "债务逾期" for row in detail["rows"])
+
+
+def test_module_detail_equity_fallback_omits_overdue_debt():
+    company = sample_company()
+    company["module_details"]["equity"]["evidence"] = []
+
+    detail = module_detail(company, "equity")
+
+    assert all(row["指标"] != "债务逾期" for row in detail["rows"])
 
 
 def test_module_detail_rejects_unknown_module():
@@ -652,6 +903,88 @@ def test_method_route_is_labeled_as_scoring_rules():
     assert streamlit_app.route_label({"page": "method"}) == "评分规则"
 
 
+def test_validation_route_is_labeled_as_model_validation_cases():
+    assert streamlit_app.route_label({"page": "validation"}) == "模型验证案例"
+
+
+def test_validation_method_entry_html_links_to_secondary_page():
+    helper = getattr(streamlit_app, "validation_method_entry_html", None)
+
+    assert helper is not None
+    html = helper()
+
+    assert "模型验证案例" in html
+    assert "用真实混改前后样本验证评分解释力" in html
+    assert "进入验证案例页" in html
+
+
+def test_validation_case_card_html_uses_green_downtrend_for_dencare():
+    case = next(item for item in streamlit_app.MODEL_VALIDATION_CASES if item["code"] == "001328")
+
+    delta = streamlit_app.validation_case_delta(case)
+    html = streamlit_app.validation_case_card_html(case)
+
+    assert delta == {"value": -13.105, "direction": "down", "label": "-13.105"}
+    assert 'class="validation-case validation-trend-down"' in html
+    assert "64.995" in html
+    assert "51.89" in html
+    assert "-13.105" in html
+    assert "重庆国资内部调整" in html
+    assert "同一实控体系内托管与无偿划转" in html
+    assert "托管协议公告" in html
+    assert "https://static.cninfo.com.cn/finalpage/2025-01-04/1222224507.PDF" in html
+
+
+def test_validation_case_card_html_uses_red_uptrend_for_yunnan_baiyao():
+    case = next(item for item in streamlit_app.MODEL_VALIDATION_CASES if item["name"] == "云南白药")
+
+    delta = streamlit_app.validation_case_delta(case)
+    html = streamlit_app.validation_case_card_html(case)
+
+    assert delta == {"value": 13.582, "direction": "up", "label": "+13.582"}
+    assert 'class="validation-case validation-trend-up"' in html
+    assert "51.415" in html
+    assert "64.997" in html
+    assert "+13.582" in html
+    assert "2017年" in html
+    assert "持续优化阶段" in html
+
+
+def test_model_validation_page_html_contains_research_scope_and_peer_cases():
+    helper = getattr(streamlit_app, "model_validation_page_html", None)
+
+    assert helper is not None
+    html = helper()
+
+    assert "过去十年" in html
+    assert "约200余家" in html
+    assert "最近三年" in html
+    assert "中航电测→中航成飞" in html
+    assert "中国船舶吸收合并中国重工" in html
+    assert "东航物流" in html
+    assert "中国联通" in html
+
+
+def test_validation_hero_css_uses_soft_title_panel_colors(monkeypatch):
+    captured = {}
+
+    def fake_markdown(body, unsafe_allow_html=False):
+        captured["body"] = body
+        captured["unsafe"] = unsafe_allow_html
+
+    monkeypatch.setattr(streamlit_app.st, "markdown", fake_markdown)
+
+    streamlit_app.inject_css()
+
+    css = captured["body"]
+    validation_hero_block = css.split(".validation-hero {", 1)[1].split(".validation-hero .section-kicker", 1)[0]
+    assert "#fff8ef" in validation_hero_block
+    assert "#e9f7f3" in validation_hero_block
+    assert "#101820" not in validation_hero_block
+    assert "color: #5b2b24;" in validation_hero_block
+    assert captured["unsafe"] is True
+
+
 def test_scoring_rule_sections_match_four_module_contract():
     sections = scoring_rule_sections()
 
@@ -679,6 +1012,8 @@ def test_page_from_query_params_only_accepts_method_page():
     assert helper is not None
     assert helper({"page": "method"}) == "method"
     assert helper({"page": ["method"]}) == "method"
+    assert helper({"page": "validation"}) == "validation"
+    assert helper({"page": ["validation"]}) == "validation"
     assert helper({"page": "home"}) is None
     assert helper({"page": "company"}) is None
     assert helper({}) is None

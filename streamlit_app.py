@@ -3,6 +3,7 @@ from __future__ import annotations
 import html
 import json
 import math
+import re
 from typing import Any
 from urllib import request
 
@@ -33,6 +34,9 @@ from backend.app.streamlit_view import (
     scoring_rule_sections,
     score_band,
 )
+
+
+DEFAULT_URLOPEN = request.urlopen
 
 
 st.set_page_config(
@@ -97,6 +101,8 @@ def main() -> None:
         render_company_page()
     elif page == "module":
         render_module_page()
+    elif page == "validation":
+        render_model_validation_page()
     else:
         render_method_page()
 
@@ -116,8 +122,8 @@ def page_from_query_params(params: Any) -> str | None:
         return None
     if isinstance(raw_page, list):
         raw_page = raw_page[0] if raw_page else None
-    if raw_page == "method":
-        return "method"
+    if raw_page in {"method", "validation"}:
+        return str(raw_page)
     return None
 
 
@@ -196,6 +202,74 @@ def company_breadcrumb_text(company: dict) -> str:
 
 def h(value: Any) -> str:
     return html.escape(str(value if value is not None else ""))
+
+
+MODEL_VALIDATION_CASES = [
+    {
+        "name": "登康口腔",
+        "code": "001328",
+        "headline": "重庆国资内部调整",
+        "period_label": "混改前后对照",
+        "start_year": 2023,
+        "end_year": 2025,
+        "start_label": "2023 混改前评分",
+        "end_label": "2025 混改后评分",
+        "start_score": "64.995",
+        "end_score": "51.89",
+        "time": "2025年1月2日签署托管协议；2025年2月28日推进轻纺集团股权无偿划转；2025年4月17日披露反垄断审查进展。",
+        "content": "控股股东上层股权结构调整：轻纺集团由重庆机电控股托管，并进一步由机电集团直接持有轻纺集团100%股权。",
+        "type": "同一实控体系内托管与无偿划转",
+        "explanation": "评分下降说明经历一次国资内部调整后，公司未来新增混改空间下降；但分数仍处观察合理区间，表明财务状况和公司治理未出现大的不良扰动。",
+        "source": "巨潮资讯网2025年公告",
+        "source_links": [
+            {
+                "label": "托管协议公告",
+                "url": "https://static.cninfo.com.cn/finalpage/2025-01-04/1222224507.PDF",
+            },
+            {
+                "label": "无偿划转公告",
+                "url": "https://file.finance.sina.com.cn/211.154.219.97%3A9494/MRGG/CNSESZ_STOCK/2025/2025-3/2025-03-01/10765652.PDF",
+            },
+            {
+                "label": "反垄断审查进展公告",
+                "url": "https://static.cninfo.com.cn/finalpage/2025-04-18/1223123703.PDF",
+            },
+        ],
+    },
+    {
+        "name": "云南白药",
+        "code": "000538",
+        "headline": "完成混改后的持续优化",
+        "period_label": "混改后持续观察",
+        "start_year": 2023,
+        "end_year": 2025,
+        "start_label": "2023 持续优化初期",
+        "end_label": "2025 持续优化后",
+        "start_score": "51.415",
+        "end_score": "64.997",
+        "time": "主要混合所有制改革发生在2017年；2023--2025年属于混改完成后的持续优化阶段。",
+        "content": "观察混改完成后公司治理、经营质量和财务稳定性的延续变化，而非单次控制权变动。",
+        "type": "已完成混改后的长期稳定发展样本",
+        "explanation": "评分上升说明在长期稳定运行后，公司后续混改潜力随时间逐步增加，也反映其财务状态和治理状态稳步提高。",
+        "source": "团队模型测算与历史混改阶段划分",
+    },
+]
+
+
+MODEL_VALIDATION_PEER_CASES = [
+    {
+        "title": "类型一：国有优质资产注入上市平台",
+        "items": ["中航电测→中航成飞", "中国船舶吸收合并中国重工"],
+    },
+    {
+        "title": "类型二：国有控股企业控制权转让给民营资本",
+        "items": ["旗天科技仍待进一步观察"],
+    },
+    {
+        "title": "长期优化样本",
+        "items": ["东航物流", "中国联通"],
+    },
+]
 
 
 def rule_tone_class(key: str) -> str:
@@ -336,7 +410,6 @@ def metric_card_rows(title: str, payload: dict) -> list[tuple[str, str, Any]]:
             report_value(payload.get("domesticAuditFirm", "")),
             payload.get("domesticAuditFirm", ""),
         ),
-        ("债务逾期", report_value(payload.get("overdueDebt", "")), payload.get("overdueDebt", "")),
     ]
 
 
@@ -594,7 +667,113 @@ GOVERNANCE_RADAR_METRICS = (
     ("行业地位", "行业地位"),
 )
 
-QWEN_HIGHLIGHT_CACHE: dict[str, list[str]] = {}
+DEEPSEEK_HIGHLIGHT_CACHE: dict[str, list[str]] = {}
+DEEPSEEK_RISK_CACHE: dict[str, list[str]] = {}
+
+
+def company_risk_items(company: dict) -> tuple[list[str], str]:
+    deepseek_items = []
+    if get_setting("DEEPSEEK_API_KEY") and get_setting("DEEPSEEK_AI_ENABLED", "1").strip().lower() not in {"0", "false"}:
+        deepseek_items = _request_deepseek_company_risks(company)
+    if deepseek_items:
+        return deepseek_items, "AI评价"
+    return reason_items(company.get("risks"), "暂无风险提示"), "规则/数据库"
+
+
+def _request_deepseek_company_risks(company: dict) -> list[str]:
+    summary = company_risk_prompt_summary(company)
+    model = get_setting("DEEPSEEK_MODEL", "deepseek-chat")
+    cache_key = json.dumps(
+        {
+            "code": company.get("code") or company.get("stock_code", ""),
+            "model": model,
+            "summary": summary,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    if cache_key in DEEPSEEK_RISK_CACHE:
+        return list(DEEPSEEK_RISK_CACHE[cache_key])
+    api_key = get_setting("DEEPSEEK_API_KEY")
+    base_url = get_setting("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/")
+    try:
+        timeout = float(get_setting("DEEPSEEK_TIMEOUT_SECONDS", "4") or 4)
+    except ValueError:
+        timeout = 4.0
+    payload = {
+        "model": model,
+        "stream": False,
+        "temperature": 0.2,
+        "max_tokens": 240,
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "你是国企混改潜力风险分析助手。只依据用户提供的界面数据，"
+                    "输出2到4条简洁中文风险或减分评价；每条不超过32字；不要编号；不要编造缺失信息。"
+                ),
+            },
+            {"role": "user", "content": summary},
+        ],
+    }
+    api_request = request.Request(
+        f"{base_url}/chat/completions",
+        data=json.dumps(payload).encode("ascii"),
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json; charset=utf-8"},
+        method="POST",
+    )
+    try:
+        with open_deepseek_request(api_request, timeout=timeout) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    except Exception:
+        return []
+    content = str(data.get("choices", [{}])[0].get("message", {}).get("content", ""))
+    items = parse_highlight_lines(content)
+    DEEPSEEK_RISK_CACHE[cache_key] = items
+    return list(items)
+
+
+def open_deepseek_request(api_request: request.Request, timeout: float):
+    if request.urlopen is not DEFAULT_URLOPEN:
+        return request.urlopen(api_request, timeout=timeout)
+    return request.build_opener(request.ProxyHandler({})).open(api_request, timeout=timeout)
+
+
+def company_risk_prompt_summary(company: dict) -> str:
+    lines = [
+        "company:",
+        f"code: {company.get('code') or company.get('stock_code', '')}",
+        f"name: {short_name(company)}",
+        f"full_name: {company.get('name', '')}",
+        f"total_score: {score(company):.1f}",
+        f"province: {company.get('province', '')}",
+        f"city: {company.get('city', '')}",
+        f"industry: {company.get('industry', '')}",
+        f"controller: {company.get('controller', '')}",
+        f"state_attribute: {company.get('stateAttribute', company.get('ownership', ''))}",
+        "four modules:",
+    ]
+    for key, label, weight in MODULE_LABELS:
+        try:
+            detail = module_detail(company, key)
+        except Exception:
+            detail = {"score": company.get("modules", {}).get(key, 0), "rows": [], "notes": []}
+        try:
+            module_score = float(detail.get("score", 0))
+        except (TypeError, ValueError):
+            module_score = 0.0
+        lines.append(f"- {key} {label} weight {weight} score {module_score:.1f}")
+        for row in detail.get("rows", [])[:8]:
+            lines.append(
+                "  evidence: "
+                f"{row.get('指标', '')}: value={row.get('数值', '')}, score={row.get('得分', '')}"
+            )
+        notes = [str(item) for item in detail.get("notes", [])[:4] if str(item).strip()]
+        if notes:
+            lines.append(f"  notes: {'；'.join(notes)}")
+    lines.append("highlights: " + "；".join(reason_items(company.get("highlights"), "暂无积极信号")))
+    lines.append("risks: " + "；".join(reason_items(company.get("risks"), "暂无风险提示")))
+    return "\n".join(lines)
 
 
 def finance_score_parts(score_text: Any) -> tuple[float, float, float]:
@@ -785,11 +964,11 @@ def governance_trend_chart_html(trend: list[dict]) -> str:
 
 
 def governance_highlights_html(detail: dict) -> str:
-    qwen_items = []
-    if get_setting("QWEN_API_KEY") and get_setting("QWEN_HIGHLIGHTS_ENABLED", "1").strip().lower() not in {"0", "false"}:
-        qwen_items = _request_qwen_governance_highlights(detail)
-    source = "Qwen生成" if qwen_items else "规则生成"
-    items = qwen_items or rule_governance_highlights(detail)
+    deepseek_items = []
+    if get_setting("DEEPSEEK_API_KEY") and get_setting("DEEPSEEK_AI_ENABLED", "1").strip().lower() not in {"0", "false"}:
+        deepseek_items = _request_deepseek_governance_highlights(detail)
+    source = "DeepSeek生成" if deepseek_items else "规则生成"
+    items = deepseek_items or rule_governance_highlights(detail)
     rows = "".join(
         f'<div class="governance-highlight-item"><span class="note-dot">i</span>{h(item)}</div>' for item in items
     )
@@ -802,16 +981,16 @@ def governance_highlights_html(detail: dict) -> str:
     )
 
 
-def _request_qwen_governance_highlights(detail: dict) -> list[str]:
+def _request_deepseek_governance_highlights(detail: dict) -> list[str]:
     summary = governance_prompt_summary(detail)
-    model = get_setting("QWEN_MODEL", "qwen/qwen3-next-80b-a3b-instruct")
+    model = get_setting("DEEPSEEK_MODEL", "deepseek-chat")
     cache_key = json.dumps({"model": model, "summary": summary}, ensure_ascii=False, sort_keys=True)
-    if cache_key in QWEN_HIGHLIGHT_CACHE:
-        return list(QWEN_HIGHLIGHT_CACHE[cache_key])
-    api_key = get_setting("QWEN_API_KEY")
-    base_url = get_setting("QWEN_BASE_URL", "https://integrate.api.nvidia.com/v1").rstrip("/")
+    if cache_key in DEEPSEEK_HIGHLIGHT_CACHE:
+        return list(DEEPSEEK_HIGHLIGHT_CACHE[cache_key])
+    api_key = get_setting("DEEPSEEK_API_KEY")
+    base_url = get_setting("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/")
     try:
-        timeout = float(get_setting("QWEN_TIMEOUT_SECONDS", "4") or 4)
+        timeout = float(get_setting("DEEPSEEK_TIMEOUT_SECONDS", "4") or 4)
     except ValueError:
         timeout = 4.0
     payload = {
@@ -829,18 +1008,18 @@ def _request_qwen_governance_highlights(detail: dict) -> list[str]:
     }
     api_request = request.Request(
         f"{base_url}/chat/completions",
-        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        data=json.dumps(payload).encode("ascii"),
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json; charset=utf-8"},
         method="POST",
     )
     try:
-        with request.urlopen(api_request, timeout=timeout) as response:
+        with open_deepseek_request(api_request, timeout=timeout) as response:
             data = json.loads(response.read().decode("utf-8"))
     except Exception:
         return []
     content = str(data.get("choices", [{}])[0].get("message", {}).get("content", ""))
     items = parse_highlight_lines(content)
-    QWEN_HIGHLIGHT_CACHE[cache_key] = items
+    DEEPSEEK_HIGHLIGHT_CACHE[cache_key] = items
     return list(items)
 
 
@@ -859,7 +1038,8 @@ def governance_prompt_summary(detail: dict) -> str:
 def parse_highlight_lines(content: str) -> list[str]:
     items = []
     for line in content.splitlines():
-        text = line.strip().lstrip("-*0123456789.、)） ").strip()
+        text = re.sub(r"^\s*[-*•]?\s*[0-9０-９]+[.)、）．]\s*", "", line.strip()).strip()
+        text = text.lstrip("-*、)） ").strip()
         if text:
             items.append(text[:60])
     return items[:4]
@@ -1878,6 +2058,326 @@ def inject_css() -> None:
           font-size: 24px;
           margin-bottom: 6px;
         }
+        .validation-entry-card {
+          margin-top: 34px;
+          border: 1px solid rgba(16, 24, 32, 0.14);
+          border-left: 5px solid var(--accent);
+          background:
+            linear-gradient(90deg, rgba(16, 24, 32, 0.035) 1px, transparent 1px),
+            linear-gradient(180deg, rgba(16, 24, 32, 0.03) 1px, transparent 1px),
+            rgba(255, 255, 255, 0.86);
+          background-size: 24px 24px, 24px 24px, auto;
+          border-radius: 0 18px 18px 0;
+          padding: 22px 24px;
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto;
+          gap: 22px;
+          align-items: center;
+          box-shadow: 0 18px 42px rgba(16, 24, 32, 0.08);
+        }
+        .validation-entry-card h3 {
+          margin: 2px 0 8px 0;
+          font-size: 25px;
+        }
+        .validation-entry-card p {
+          margin: 0;
+          color: #475467;
+          line-height: 1.7;
+        }
+        .validation-entry-action {
+          border: 1px solid rgba(239, 63, 45, 0.28);
+          background: #fff0ec;
+          color: var(--accent-dark);
+          border-radius: 999px;
+          padding: 10px 15px;
+          font-size: 13px;
+          font-weight: 900;
+          white-space: nowrap;
+        }
+        .validation-hero {
+          margin: 0 -2rem 36px -2rem;
+          padding: 46px 2rem 30px 2rem;
+          color: #5b2b24;
+          background:
+            linear-gradient(90deg, rgba(181, 71, 8, 0.07) 1px, transparent 1px),
+            linear-gradient(180deg, rgba(15, 118, 110, 0.055) 1px, transparent 1px),
+            linear-gradient(135deg, #fff8ef 0%, #fbfdf6 52%, #e9f7f3 100%);
+          background-size: 28px 28px, 28px 28px, auto;
+          border-bottom: 1px solid rgba(181, 71, 8, 0.16);
+          box-shadow: 0 18px 48px rgba(181, 71, 8, 0.08);
+        }
+        .validation-hero .section-kicker {
+          color: #d92d20;
+          margin-top: 0;
+        }
+        .validation-hero-grid {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) minmax(230px, 310px);
+          gap: 34px;
+          align-items: end;
+        }
+        .validation-title {
+          font-family: "Noto Serif SC", "Songti SC", serif;
+          font-size: clamp(44px, 6vw, 76px);
+          line-height: 1.08;
+        }
+        .validation-hero p,
+        .validation-intro p,
+        .validation-peer-section p {
+          max-width: 840px;
+          line-height: 1.85;
+        }
+        .validation-hero p {
+          color: #5f4b45;
+          font-size: 15px;
+          margin: 18px 0 0 0;
+        }
+        .validation-proof-panel {
+          border: 1px solid rgba(181, 71, 8, 0.18);
+          background: rgba(255, 255, 255, 0.68);
+          border-radius: 18px;
+          padding: 20px;
+          box-shadow:
+            0 18px 40px rgba(181, 71, 8, 0.10),
+            inset 0 1px rgba(255, 255, 255, 0.82);
+        }
+        .validation-proof-panel span,
+        .validation-proof-panel em {
+          display: block;
+          color: #7a5d54;
+          font-size: 12px;
+          font-style: normal;
+          font-weight: 800;
+        }
+        .validation-proof-panel strong {
+          display: block;
+          color: #b42318;
+          font-family: "Noto Serif SC", serif;
+          font-size: 66px;
+          line-height: 1;
+          margin: 8px 0;
+        }
+        .validation-proof-strip {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 10px;
+          margin-top: 30px;
+        }
+        .validation-proof-strip span {
+          border: 1px solid rgba(181, 71, 8, 0.18);
+          background: rgba(255, 255, 255, 0.58);
+          border-radius: 999px;
+          padding: 7px 11px;
+          color: #6f4a40;
+          font-size: 12px;
+          font-weight: 850;
+        }
+        .validation-intro,
+        .validation-peer-section {
+          margin: 0 0 24px 0;
+        }
+        .validation-intro p,
+        .validation-peer-section p {
+          color: #475467;
+          margin-top: -10px;
+        }
+        .validation-case-stack {
+          display: grid;
+          gap: 26px;
+          margin: 18px 0 42px 0;
+        }
+        .validation-case {
+          border: 1px solid rgba(16, 24, 32, 0.14);
+          background: rgba(255, 255, 255, 0.88);
+          border-radius: 18px;
+          padding: 24px;
+          box-shadow: 0 22px 54px rgba(16, 24, 32, 0.10);
+          overflow: hidden;
+          position: relative;
+        }
+        .validation-case::before {
+          content: "";
+          position: absolute;
+          inset: 0 0 auto 0;
+          height: 6px;
+          background: var(--validation-color);
+        }
+        .validation-trend-up {
+          --validation-color: #d92d20;
+          --validation-soft: #fff0ec;
+          --validation-text: #b42318;
+        }
+        .validation-trend-down {
+          --validation-color: #039855;
+          --validation-soft: #ecfdf3;
+          --validation-text: #027a48;
+        }
+        .validation-case-head {
+          display: flex;
+          justify-content: space-between;
+          gap: 22px;
+          align-items: flex-start;
+          margin-bottom: 22px;
+        }
+        .validation-case-kicker {
+          color: var(--muted);
+          font-size: 12px;
+          font-weight: 900;
+          text-transform: uppercase;
+        }
+        .validation-case h2 {
+          margin: 5px 0 8px 0;
+          font-size: clamp(30px, 4vw, 46px);
+        }
+        .validation-case-head p {
+          margin: 0;
+          color: #344054;
+          font-size: 15px;
+          font-weight: 800;
+        }
+        .validation-trend-badge {
+          border: 1px solid color-mix(in srgb, var(--validation-color) 32%, transparent);
+          background: var(--validation-soft);
+          color: var(--validation-text);
+          border-radius: 999px;
+          padding: 8px 12px;
+          font-size: 12px;
+          font-weight: 900;
+          white-space: nowrap;
+        }
+        .validation-score-pair {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) minmax(150px, 0.58fr) minmax(0, 1fr);
+          gap: 14px;
+          align-items: stretch;
+          margin-bottom: 18px;
+        }
+        .validation-score-block,
+        .validation-arrow-panel {
+          border: 1px solid rgba(148, 163, 184, 0.22);
+          background: rgba(248, 250, 252, 0.82);
+          border-radius: 16px;
+          padding: 18px;
+          min-width: 0;
+        }
+        .validation-score-block span,
+        .validation-score-block em,
+        .validation-arrow-panel span {
+          display: block;
+          color: var(--muted);
+          font-size: 12px;
+          font-style: normal;
+          font-weight: 850;
+          overflow-wrap: anywhere;
+        }
+        .validation-score-block strong {
+          display: block;
+          color: var(--ink);
+          font-family: "Noto Serif SC", serif;
+          font-size: clamp(34px, 5vw, 58px);
+          line-height: 1.05;
+          margin: 10px 0 7px 0;
+          font-variant-numeric: tabular-nums;
+        }
+        .validation-arrow-panel {
+          display: grid;
+          place-items: center;
+          text-align: center;
+          background:
+            linear-gradient(180deg, var(--validation-soft), rgba(255, 255, 255, 0.92));
+        }
+        .validation-arrow {
+          color: var(--validation-color);
+          font-size: 70px;
+          line-height: 0.9;
+          font-family: "Noto Serif SC", serif;
+        }
+        .validation-delta {
+          color: var(--validation-text);
+          font-family: "Noto Serif SC", serif;
+          font-size: 25px;
+          font-weight: 900;
+          font-variant-numeric: tabular-nums;
+        }
+        .validation-fact-table {
+          width: 100%;
+          border-collapse: separate;
+          border-spacing: 0;
+          border: 1px solid rgba(148, 163, 184, 0.24);
+          border-radius: 14px;
+          overflow: hidden;
+          background: rgba(255, 255, 255, 0.78);
+        }
+        .validation-fact-table th,
+        .validation-fact-table td {
+          border-bottom: 1px solid rgba(148, 163, 184, 0.20);
+          padding: 12px 14px;
+          line-height: 1.65;
+          vertical-align: top;
+          text-align: left;
+        }
+        .validation-fact-table tr:last-child th,
+        .validation-fact-table tr:last-child td {
+          border-bottom: 0;
+        }
+        .validation-fact-table th {
+          width: 112px;
+          color: var(--validation-text);
+          background: var(--validation-soft);
+          font-size: 13px;
+          white-space: nowrap;
+        }
+        .validation-fact-table td {
+          color: #344054;
+          font-size: 13px;
+        }
+        .validation-source-links {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+        }
+        .validation-source-links a {
+          border: 1px solid rgba(16, 24, 32, 0.12);
+          background: #ffffff;
+          border-radius: 999px;
+          color: var(--validation-text);
+          font-size: 12px;
+          font-weight: 850;
+          padding: 5px 9px;
+          text-decoration: none;
+        }
+        .validation-peer-grid {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 12px;
+          margin-top: 14px;
+        }
+        .validation-peer-group {
+          border: 1px solid var(--line);
+          background: rgba(255, 255, 255, 0.82);
+          border-radius: 16px;
+          padding: 16px;
+        }
+        .validation-peer-group strong {
+          display: block;
+          color: var(--ink);
+          margin-bottom: 11px;
+          line-height: 1.45;
+        }
+        .validation-peer-group div {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+        }
+        .validation-peer-group span {
+          border: 1px solid rgba(16, 24, 32, 0.12);
+          background: #f8fafc;
+          border-radius: 999px;
+          padding: 6px 9px;
+          color: #344054;
+          font-size: 12px;
+          font-weight: 800;
+        }
         .mixed-status-section {
           margin-top: 64px;
           padding-top: 8px;
@@ -2629,8 +3129,19 @@ def inject_css() -> None:
             margin-bottom: 18px;
           }
           .rule-hero-grid, .report-hero-grid, .module-hero-grid, .evidence-grid, .module-detail-grid, .level-grid,
+          .validation-entry-card, .validation-hero-grid, .validation-score-pair, .validation-peer-grid,
           .mixed-status-head, .mixed-status-grid, .mixed-donut-wrap, .mixed-module-layout, .mixed-insight-grid {
             grid-template-columns: 1fr;
+          }
+          .validation-case-head {
+            display: grid;
+          }
+          .validation-arrow {
+            font-size: 56px;
+          }
+          .validation-fact-table th {
+            width: 88px;
+            white-space: normal;
           }
           .report-stats, .rule-stat-row, .normalization-flow, .mixed-status-stats, .mixed-metrics-chart {
             grid-template-columns: 1fr;
@@ -2746,6 +3257,8 @@ def route_label(route: dict) -> str:
         module_key = route.get("selected_module", "finance")
         module_name = MODULE_META.get(module_key, {}).get("label", module_key)
         return f"模块二级页 · {module_name}"
+    if page == "validation":
+        return "模型验证案例"
     return "评分规则"
 
 
@@ -2917,6 +3430,159 @@ def mixed_status_dashboard_html(dashboard: dict[str, Any]) -> str:
 
 def compact_html(html_text: str) -> str:
     return "".join(line.strip() for line in html_text.splitlines())
+
+
+def validation_case_delta(case: dict) -> dict[str, Any]:
+    start_score = float(case["start_score"])
+    end_score = float(case["end_score"])
+    value = round(end_score - start_score, 3)
+    return {
+        "value": value,
+        "direction": "up" if value >= 0 else "down",
+        "label": f"{value:+.3f}",
+    }
+
+
+def validation_method_entry_html() -> str:
+    return compact_html(
+        """
+        <section class="validation-entry-card">
+          <div>
+            <div class="section-kicker">Model Backtest</div>
+            <h3>模型验证案例</h3>
+            <p>用真实混改前后样本验证评分解释力，把评分规则从“怎么算”延伸到“为什么有效”。</p>
+          </div>
+          <div class="validation-entry-action">进入验证案例页</div>
+        </section>
+        """
+    )
+
+
+def validation_fact_rows_html(case: dict) -> str:
+    rows = [
+        ("混改时间", case["time"]),
+        ("混改内容", case["content"]),
+        ("混改类型", case["type"]),
+        ("模型解释", case["explanation"]),
+    ]
+    if case.get("source"):
+        rows.append(("事实口径", case["source"]))
+    rendered_rows = [
+        f"<tr><th>{h(label)}</th><td>{h(value)}</td></tr>"
+        for label, value in rows
+    ]
+    source_links = case.get("source_links") or []
+    if source_links:
+        links = "".join(
+            f'<a href="{h(item["url"])}" target="_blank" rel="noopener noreferrer">{h(item["label"])}</a>'
+            for item in source_links
+        )
+        rendered_rows.append(f'<tr><th>公告链接</th><td><div class="validation-source-links">{links}</div></td></tr>')
+    return "".join(rendered_rows)
+
+
+def validation_case_card_html(case: dict) -> str:
+    delta = validation_case_delta(case)
+    direction = delta["direction"]
+    arrow = "&#8599;" if direction == "up" else "&#8600;"
+    trend_word = "上升" if direction == "up" else "下降"
+    return compact_html(
+        f"""
+        <section class="validation-case validation-trend-{direction}">
+          <div class="validation-case-head">
+            <div>
+              <div class="validation-case-kicker">{h(case["period_label"])} · {h(case["code"])}</div>
+              <h2>{h(case["name"])}</h2>
+              <p>{h(case["headline"])}</p>
+            </div>
+            <div class="validation-trend-badge">{h(trend_word)}趋势</div>
+          </div>
+          <div class="validation-score-pair">
+            <div class="validation-score-block">
+              <span>{h(case["start_label"])}</span>
+              <strong>{h(case["start_score"])}</strong>
+              <em>{h(case["start_year"])} Score</em>
+            </div>
+            <div class="validation-arrow-panel">
+              <div class="validation-arrow">{arrow}</div>
+              <div class="validation-delta">{h(delta["label"])}</div>
+              <span>分数变化</span>
+            </div>
+            <div class="validation-score-block">
+              <span>{h(case["end_label"])}</span>
+              <strong>{h(case["end_score"])}</strong>
+              <em>{h(case["end_year"])} Score</em>
+            </div>
+          </div>
+          <div class="validation-evidence-grid">
+            <table class="validation-fact-table">
+              <tbody>{validation_fact_rows_html(case)}</tbody>
+            </table>
+          </div>
+        </section>
+        """
+    )
+
+
+def validation_peer_cases_html() -> str:
+    groups = []
+    for group in MODEL_VALIDATION_PEER_CASES:
+        chips = "".join(f"<span>{h(item)}</span>" for item in group["items"])
+        groups.append(
+            f"""
+            <div class="validation-peer-group">
+              <strong>{h(group["title"])}</strong>
+              <div>{chips}</div>
+            </div>
+            """
+        )
+    return compact_html(f'<section class="validation-peer-grid">{"".join(groups)}</section>')
+
+
+def model_validation_page_html() -> str:
+    cards = "".join(validation_case_card_html(case) for case in MODEL_VALIDATION_CASES)
+    return compact_html(
+        f"""
+        <section class="validation-hero">
+          <div class="validation-hero-grid">
+            <div>
+              <div class="section-kicker">Model Validation</div>
+              <div class="validation-title">模型验证案例</div>
+              <p>
+                为了测试我们模型的准确性，我们小组深入研究、回测了过去十年内A股市场约200余家公司的混改前后数据，
+                从而得出我们的模型效果显著。仅利用最近三年的数据来看，结果也能很好说明模型的作用和意义。
+              </p>
+            </div>
+            <div class="validation-proof-panel">
+              <span>研究样本</span>
+              <strong>200+</strong>
+              <em>A股公司混改前后回测</em>
+            </div>
+          </div>
+          <div class="validation-proof-strip">
+            <span>过去十年</span>
+            <span>约200余家</span>
+            <span>最近三年</span>
+            <span>混改前后评分对照</span>
+          </div>
+        </section>
+        <section class="validation-intro">
+          <div class="section-kicker">Case Evidence</div>
+          <div class="section-title">两个方向，验证同一套模型解释力</div>
+          <p>
+            分数变化不是简单判断好坏，而是观察企业在混改之后的新增改革空间、治理稳定性与财务基础是否发生结构性变化。
+            中国股市语义中，红色表示上涨，绿色表示下跌；下方趋势色彩按这一规则呈现。
+          </p>
+        </section>
+        <div class="validation-case-stack">{cards}</div>
+        <section class="validation-peer-section">
+          <div class="section-kicker">Similar Cases</div>
+          <div class="section-title">类似样本提示</div>
+          <p>以下案例作为同类混改路径提示，页面只做点名，不展开评分。</p>
+          {validation_peer_cases_html()}
+        </section>
+        """
+    )
 
 
 def mixed_status_stat_cards_html(slices: list[dict[str, Any]], total: int) -> str:
@@ -3224,13 +3890,23 @@ def render_company_page() -> None:
     render_company_evidence(company)
 
 
+MIXED_STATUS_ENGLISH_COPY = {
+    "已经完成混改": "Mixed reform completed",
+    "正在进行混改": "Mixed reform in progress",
+    "潜在混改企业": "Potential mixed-reform target",
+    "尚未发生混改": "No mixed reform yet",
+}
+
+
 def reform_status_cards_html(company: dict) -> str:
     profile = company.get("reformProfile") or {}
-    state_label = "国企" if profile.get("isStateOwned") else "非国企"
+    is_state_owned = bool(profile.get("isStateOwned"))
+    state_label = "国企" if is_state_owned else "非国企"
     mixed_label = report_value(profile.get("mixedStatusLabel", ""))
-    state_class = "state-owned" if profile.get("isStateOwned") else "state-private"
+    state_class = "state-owned" if is_state_owned else "state-private"
     mixed_class = reform_status_class(mixed_label)
-    state_subline = "State-owned" if profile.get("isStateOwned") else "Private"
+    state_subline = "State-owned enterprise" if is_state_owned else "Non-state-owned enterprise"
+    mixed_subline = MIXED_STATUS_ENGLISH_COPY.get(mixed_label, "Mixed reform status")
 
     return (
         f'<div class="reform-status-stack">'
@@ -3242,7 +3918,7 @@ def reform_status_cards_html(company: dict) -> str:
         f'<div class="reform-info-card {h(mixed_class)}">'
         f'<div class="reform-info-label">混改状态</div>'
         f'<div class="reform-info-value">{h(mixed_label)}</div>'
-        f'<div class="reform-info-sub">Mixed reform</div>'
+        f'<div class="reform-info-sub">{h(mixed_subline)}</div>'
         f"</div>"
         f"</div>"
     )
@@ -3358,8 +4034,13 @@ def render_company_evidence(company: dict) -> None:
             )
         st.markdown("</div>", unsafe_allow_html=True)
 
-        st.markdown('<div class="detail-card"><h3>主要风险与减分项</h3>', unsafe_allow_html=True)
-        for item in reason_items(company.get("risks"), "暂无风险提示"):
+        risks, risk_source = company_risk_items(company)
+        st.markdown(
+            '<div class="detail-card"><div class="governance-card-head"><h3>主要风险与减分项</h3>'
+            f'<span class="governance-source">{h(risk_source)}</span></div>',
+            unsafe_allow_html=True,
+        )
+        for item in risks:
             st.markdown(
                 f'<div class="note-item"><span class="note-dot" style="background:#475467;">!</span>{h(item)}</div>',
                 unsafe_allow_html=True,
@@ -3486,6 +4167,10 @@ def render_governance_module_detail(detail: dict) -> None:
         st.markdown(governance_highlights_html(detail), unsafe_allow_html=True)
 
 
+def render_model_validation_page() -> None:
+    st.markdown(model_validation_page_html(), unsafe_allow_html=True)
+
+
 def render_method_page() -> None:
     sections = scoring_rule_sections()
     st.markdown(
@@ -3534,6 +4219,10 @@ def render_method_page() -> None:
         unsafe_allow_html=True,
     )
     st.markdown(potential_level_grid_html(potential_level_rows()), unsafe_allow_html=True)
+
+    st.markdown(validation_method_entry_html(), unsafe_allow_html=True)
+    if st.button("进入验证案例页", key="validation-entry-button", width="stretch"):
+        navigate("validation")
 
 
 if __name__ == "__main__":

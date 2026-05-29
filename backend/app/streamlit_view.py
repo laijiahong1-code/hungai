@@ -315,7 +315,6 @@ def _module_rows(company: dict, module_key: str) -> list[dict]:
             {"指标": "审计日期", "数值": display_value(equity.get("auditDate", ""))},
             {"指标": "境内审计事务所", "数值": display_value(equity.get("domesticAuditFirm", ""))},
             {"指标": "签字审计师", "数值": display_value(equity.get("auditor", ""))},
-            {"指标": "债务逾期", "数值": display_value(equity.get("overdueDebt", ""))},
         ]
     if module_key == "region":
         return [
