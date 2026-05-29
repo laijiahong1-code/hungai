@@ -549,6 +549,46 @@ def test_deepseek_governance_highlights_request_uses_deepseek_chat_completions(m
     assert items == ["治理基础稳定", "审计质量良好"]
 
 
+def test_deepseek_governance_highlights_uses_current_official_default_model(monkeypatch):
+    detail = module_detail(sample_company(), "equity")
+    captured = {}
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+        def read(self):
+            return json.dumps({"choices": [{"message": {"content": "current model works"}}]}).encode("utf-8")
+
+    def fake_urlopen(api_request, timeout):
+        captured["request"] = api_request
+        return FakeResponse()
+
+    monkeypatch.setattr(
+        streamlit_app,
+        "get_setting",
+        lambda name, default="": {
+            "DEEPSEEK_API_KEY": "deepseek-secret",
+            "DEEPSEEK_BASE_URL": "https://api.deepseek.com",
+            "DEEPSEEK_TIMEOUT_SECONDS": "7",
+        }.get(name, default),
+        raising=False,
+    )
+    monkeypatch.setattr(streamlit_app.request, "urlopen", fake_urlopen)
+    if hasattr(streamlit_app, "DEEPSEEK_HIGHLIGHT_CACHE"):
+        streamlit_app.DEEPSEEK_HIGHLIGHT_CACHE.clear()
+
+    items = streamlit_app._request_deepseek_governance_highlights(detail)
+
+    payload = json.loads(captured["request"].data.decode("utf-8"))
+    assert payload["model"] == "deepseek-v4-flash"
+    assert payload["thinking"] == {"type": "disabled"}
+    assert items == ["current model works"]
+
+
 def test_governance_highlights_fall_back_without_deepseek_key(monkeypatch):
     detail = module_detail(sample_company(), "equity")
     monkeypatch.setattr(streamlit_app, "get_setting", lambda name, default="": default, raising=False)
@@ -558,6 +598,37 @@ def test_governance_highlights_fall_back_without_deepseek_key(monkeypatch):
     assert "规则生成" in html
     assert "质押风险可控" in html
     assert "治理合规得分连续改善" in html
+
+
+def test_company_risk_items_accept_deepseek_api_key_alias(monkeypatch):
+    company = sample_company()
+    company["risks"] = ["static database risk"]
+    monkeypatch.setattr(
+        streamlit_app,
+        "get_setting",
+        lambda name, default="": {
+            "DEEPSEEK_APIKEY": "secret",
+            "DEEPSEEK_AI_ENABLED": "1",
+        }.get(name, default),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        streamlit_app,
+        "_request_deepseek_company_risks",
+        lambda company: ["AI risk through alias"],
+        raising=False,
+    )
+
+    items, _source = streamlit_app.company_risk_items(company)
+
+    assert items == ["AI risk through alias"]
+
+
+def test_deepseek_setting_reads_nested_streamlit_secret(monkeypatch):
+    monkeypatch.setattr(streamlit_app, "get_setting", lambda name, default="": default, raising=False)
+    monkeypatch.setattr(streamlit_app.st, "secrets", {"deepseek": {"api_key": "nested-secret"}}, raising=False)
+
+    assert streamlit_app.deepseek_setting("DEEPSEEK_API_KEY") == "nested-secret"
 
 
 def test_company_risk_items_use_deepseek_when_configured(monkeypatch):

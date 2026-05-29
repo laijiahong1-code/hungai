@@ -669,11 +669,67 @@ GOVERNANCE_RADAR_METRICS = (
 
 DEEPSEEK_HIGHLIGHT_CACHE: dict[str, list[str]] = {}
 DEEPSEEK_RISK_CACHE: dict[str, list[str]] = {}
+DEEPSEEK_DEFAULT_BASE_URL = "https://api.deepseek.com"
+DEEPSEEK_DEFAULT_MODEL = "deepseek-v4-flash"
+DEEPSEEK_FALSE_VALUES = {"0", "false", "no", "off", "disabled"}
+DEEPSEEK_SETTING_ALIASES = {
+    "DEEPSEEK_API_KEY": ("DEEPSEEK_APIKEY", "DEEPSEEK_KEY", "deepseek_api_key"),
+    "DEEPSEEK_BASE_URL": ("DEEPSEEK_API_BASE", "DEEPSEEK_API_URL", "deepseek_base_url"),
+    "DEEPSEEK_MODEL": ("DEEPSEEK_MODEL_NAME", "deepseek_model"),
+    "DEEPSEEK_AI_ENABLED": ("DEEPSEEK_ENABLED", "deepseek_ai_enabled"),
+    "DEEPSEEK_TIMEOUT_SECONDS": ("DEEPSEEK_TIMEOUT", "deepseek_timeout_seconds"),
+}
+
+
+def streamlit_section_secret(section_name: str, key: str) -> str:
+    try:
+        section = st.secrets.get(section_name, {})
+    except Exception:
+        return ""
+    value = ""
+    if isinstance(section, dict):
+        value = section.get(key, "")
+    else:
+        value = getattr(section, key, "")
+    return str(value).strip() if value else ""
+
+
+def deepseek_setting(name: str, default: str = "") -> str:
+    for candidate in (name, *DEEPSEEK_SETTING_ALIASES.get(name, ())):
+        value = get_setting(candidate)
+        if value:
+            return value
+    if name.startswith("DEEPSEEK_"):
+        nested_key = name.removeprefix("DEEPSEEK_").lower()
+        for section_name in ("deepseek", "DEEPSEEK"):
+            for key in (nested_key, nested_key.upper()):
+                value = streamlit_section_secret(section_name, key)
+                if value:
+                    return value
+    return default
+
+
+def deepseek_ai_enabled() -> bool:
+    enabled = deepseek_setting("DEEPSEEK_AI_ENABLED", "1").strip().lower()
+    return bool(deepseek_setting("DEEPSEEK_API_KEY")) and enabled not in DEEPSEEK_FALSE_VALUES
+
+
+def deepseek_chat_payload(model: str, max_tokens: int, messages: list[dict[str, str]]) -> dict[str, Any]:
+    payload = {
+        "model": model,
+        "stream": False,
+        "temperature": 0.2,
+        "max_tokens": max_tokens,
+        "messages": messages,
+    }
+    if model.startswith("deepseek-v4"):
+        payload["thinking"] = {"type": "disabled"}
+    return payload
 
 
 def company_risk_items(company: dict) -> tuple[list[str], str]:
     deepseek_items = []
-    if get_setting("DEEPSEEK_API_KEY") and get_setting("DEEPSEEK_AI_ENABLED", "1").strip().lower() not in {"0", "false"}:
+    if deepseek_ai_enabled():
         deepseek_items = _request_deepseek_company_risks(company)
     if deepseek_items:
         return deepseek_items, "AI评价"
@@ -682,7 +738,7 @@ def company_risk_items(company: dict) -> tuple[list[str], str]:
 
 def _request_deepseek_company_risks(company: dict) -> list[str]:
     summary = company_risk_prompt_summary(company)
-    model = get_setting("DEEPSEEK_MODEL", "deepseek-chat")
+    model = deepseek_setting("DEEPSEEK_MODEL", DEEPSEEK_DEFAULT_MODEL)
     cache_key = json.dumps(
         {
             "code": company.get("code") or company.get("stock_code", ""),
@@ -694,18 +750,16 @@ def _request_deepseek_company_risks(company: dict) -> list[str]:
     )
     if cache_key in DEEPSEEK_RISK_CACHE:
         return list(DEEPSEEK_RISK_CACHE[cache_key])
-    api_key = get_setting("DEEPSEEK_API_KEY")
-    base_url = get_setting("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/")
+    api_key = deepseek_setting("DEEPSEEK_API_KEY")
+    base_url = deepseek_setting("DEEPSEEK_BASE_URL", DEEPSEEK_DEFAULT_BASE_URL).rstrip("/")
     try:
-        timeout = float(get_setting("DEEPSEEK_TIMEOUT_SECONDS", "4") or 4)
+        timeout = float(deepseek_setting("DEEPSEEK_TIMEOUT_SECONDS", "4") or 4)
     except ValueError:
         timeout = 4.0
-    payload = {
-        "model": model,
-        "stream": False,
-        "temperature": 0.2,
-        "max_tokens": 240,
-        "messages": [
+    payload = deepseek_chat_payload(
+        model,
+        240,
+        [
             {
                 "role": "system",
                 "content": (
@@ -715,7 +769,7 @@ def _request_deepseek_company_risks(company: dict) -> list[str]:
             },
             {"role": "user", "content": summary},
         ],
-    }
+    )
     api_request = request.Request(
         f"{base_url}/chat/completions",
         data=json.dumps(payload).encode("ascii"),
@@ -965,7 +1019,7 @@ def governance_trend_chart_html(trend: list[dict]) -> str:
 
 def governance_highlights_html(detail: dict) -> str:
     deepseek_items = []
-    if get_setting("DEEPSEEK_API_KEY") and get_setting("DEEPSEEK_AI_ENABLED", "1").strip().lower() not in {"0", "false"}:
+    if deepseek_ai_enabled():
         deepseek_items = _request_deepseek_governance_highlights(detail)
     source = "DeepSeek生成" if deepseek_items else "规则生成"
     items = deepseek_items or rule_governance_highlights(detail)
@@ -983,29 +1037,27 @@ def governance_highlights_html(detail: dict) -> str:
 
 def _request_deepseek_governance_highlights(detail: dict) -> list[str]:
     summary = governance_prompt_summary(detail)
-    model = get_setting("DEEPSEEK_MODEL", "deepseek-chat")
+    model = deepseek_setting("DEEPSEEK_MODEL", DEEPSEEK_DEFAULT_MODEL)
     cache_key = json.dumps({"model": model, "summary": summary}, ensure_ascii=False, sort_keys=True)
     if cache_key in DEEPSEEK_HIGHLIGHT_CACHE:
         return list(DEEPSEEK_HIGHLIGHT_CACHE[cache_key])
-    api_key = get_setting("DEEPSEEK_API_KEY")
-    base_url = get_setting("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/")
+    api_key = deepseek_setting("DEEPSEEK_API_KEY")
+    base_url = deepseek_setting("DEEPSEEK_BASE_URL", DEEPSEEK_DEFAULT_BASE_URL).rstrip("/")
     try:
-        timeout = float(get_setting("DEEPSEEK_TIMEOUT_SECONDS", "4") or 4)
+        timeout = float(deepseek_setting("DEEPSEEK_TIMEOUT_SECONDS", "4") or 4)
     except ValueError:
         timeout = 4.0
-    payload = {
-        "model": model,
-        "stream": False,
-        "temperature": 0.2,
-        "max_tokens": 180,
-        "messages": [
+    payload = deepseek_chat_payload(
+        model,
+        180,
+        [
             {
                 "role": "system",
                 "content": "你是企业治理合规分析助手，只输出2到4条简洁中文亮点，每条不超过28字，不要编号。",
             },
             {"role": "user", "content": summary},
         ],
-    }
+    )
     api_request = request.Request(
         f"{base_url}/chat/completions",
         data=json.dumps(payload).encode("ascii"),
