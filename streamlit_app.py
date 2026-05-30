@@ -3795,7 +3795,6 @@ def model_validation_page_html() -> str:
           <div class="section-title">两个方向，验证同一套模型解释力</div>
           <p>
             分数变化不是简单判断好坏，而是观察企业在混改之后的新增改革空间、治理稳定性与财务基础是否发生结构性变化。
-            中国股市语义中，红色表示上涨，绿色表示下跌；下方趋势色彩按这一规则呈现。
           </p>
         </section>
         <div class="validation-case-stack">{cards}</div>

@@ -1076,6 +1076,13 @@ def test_model_validation_page_html_contains_research_scope_and_peer_cases():
     assert "中国联通" in html
 
 
+def test_model_validation_page_html_omits_stock_color_explanation():
+    html = streamlit_app.model_validation_page_html()
+
+    assert "中国股市语义中，红色表示上涨，绿色表示下跌" not in html
+    assert "下方趋势色彩按这一规则呈现" not in html
+
+
 def test_validation_hero_css_uses_soft_title_panel_colors(monkeypatch):
     captured = {}
 
