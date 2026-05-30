@@ -9,6 +9,10 @@ __pycache__/
 # Runtime logs
 *.log
 
+# Generated visualization scratch files
+outputs/region_visualizations/china.json
+outputs/region_visualizations/chrome-profile/
+
 # Local/generated databases and raw source data
 backend/*
 !backend/__init__.py

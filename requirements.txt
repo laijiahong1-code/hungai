@@ -4,3 +4,5 @@ numpy>=1.24
 pymongo>=4.6
 pytest>=7.0
 streamlit>=1.50
+pyecharts>=2.0
+snapshot-selenium>=0.0.2

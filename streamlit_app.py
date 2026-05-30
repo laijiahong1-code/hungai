@@ -4,10 +4,12 @@ import html
 import json
 import math
 import re
+from pathlib import Path
 from typing import Any
 from urllib import request
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 from backend.app.data import get_setting
 from backend.app.mixed_status import load_status_dashboard
@@ -37,6 +39,9 @@ from backend.app.streamlit_view import (
 
 
 DEFAULT_URLOPEN = request.urlopen
+PROJECT_ROOT = Path(__file__).resolve().parent
+REGION_HEATMAP_OUTPUT_DIR = PROJECT_ROOT / "outputs" / "region_visualizations"
+REGION_HEATMAP_HTML = REGION_HEATMAP_OUTPUT_DIR / "province_industry_match_heatmap.html"
 
 
 st.set_page_config(
@@ -667,6 +672,14 @@ GOVERNANCE_RADAR_METRICS = (
     ("行业地位", "行业地位"),
 )
 
+
+REGION_RADAR_METRICS = (
+    {"source": "财政自给率", "label": "财政自给率", "max": 6.84},
+    {"source": "地方政府债务率", "label": "债务率", "max": 5.16},
+    {"source": "产业匹配度", "label": "产业匹配度", "max": 4.0},
+    {"source": "区域混改活跃度", "label": "活跃度", "max": 2.0},
+)
+
 DEEPSEEK_HIGHLIGHT_CACHE: dict[str, list[str]] = {}
 DEEPSEEK_RISK_CACHE: dict[str, list[str]] = {}
 DEEPSEEK_DEFAULT_BASE_URL = "https://api.deepseek.com"
@@ -902,6 +915,122 @@ def governance_radar_items(rows: list[dict]) -> list[dict]:
             }
         )
     return items
+
+
+def region_radar_items(rows: list[dict], company_name: str = "") -> list[dict]:
+    row_by_label = {str(row.get("指标", "")): row for row in rows}
+    items = []
+    for metric in REGION_RADAR_METRICS:
+        row = row_by_label.get(str(metric["source"]), {})
+        score_value, max_value, _ = finance_score_parts(row.get("得分", ""))
+        metric_max = float(metric["max"])
+        normalized = 0.0 if metric_max <= 0 else max(0.0, min(1.0, score_value / metric_max))
+        items.append(
+            {
+                "label": str(metric["label"]),
+                "source_label": str(metric["source"]),
+                "value": report_value(row.get("数值", "")),
+                "score": score_value,
+                "score_label": "无数据" if not row else f"{score_value:.2f}/{max_value:.1f}",
+                "normalized": normalized,
+                "company_name": company_name,
+            }
+        )
+    return items
+
+
+def region_radar_point(
+    index: int,
+    normalized: float,
+    center_x: float = 250.0,
+    center_y: float = 180.0,
+    radius: float = 108.0,
+) -> tuple[float, float]:
+    angle = -math.pi / 2 + (math.tau * index / len(REGION_RADAR_METRICS))
+    scaled_radius = radius * max(0.0, min(1.0, normalized))
+    return center_x + math.cos(angle) * scaled_radius, center_y + math.sin(angle) * scaled_radius
+
+
+def region_radar_chart_html(rows: list[dict], company_name: str = "") -> str:
+    items = region_radar_items(rows, company_name)
+    center_x, center_y, radius = 250.0, 180.0, 108.0
+    label_radius = 154.0
+    grid_polygons = []
+    grid_labels = []
+    for level in (0.2, 0.4, 0.6, 0.8, 1.0):
+        points = " ".join(
+            f"{x:.1f},{y:.1f}"
+            for x, y in [region_radar_point(index, level, center_x, center_y, radius) for index in range(4)]
+        )
+        grid_polygons.append(f'<polygon points="{points}" />')
+        _, label_y = region_radar_point(0, level, center_x, center_y, radius)
+        grid_labels.append(f'<text x="{center_x + 8:.1f}" y="{label_y + 4:.1f}">{level:.1f}</text>')
+    axis_lines = []
+    labels = []
+    data_points = []
+    for index, item in enumerate(items):
+        axis_x, axis_y = region_radar_point(index, 1.0, center_x, center_y, radius)
+        label_x, label_y = region_radar_point(index, 1.0, center_x, center_y, label_radius)
+        point_x, point_y = region_radar_point(index, float(item["normalized"]), center_x, center_y, radius)
+        anchor = "middle"
+        if label_x > center_x + 12:
+            anchor = "start"
+        elif label_x < center_x - 12:
+            anchor = "end"
+        axis_lines.append(f'<line x1="{center_x}" y1="{center_y}" x2="{axis_x:.1f}" y2="{axis_y:.1f}" />')
+        labels.append(
+            f'<text x="{label_x:.1f}" y="{label_y:.1f}" text-anchor="{anchor}">{h(item["label"])}</text>'
+        )
+        data_points.append((point_x, point_y, item))
+    data_polygon = " ".join(f"{x:.1f},{y:.1f}" for x, y, _ in data_points)
+    close_point = f" {data_points[0][0]:.1f},{data_points[0][1]:.1f}" if data_points else ""
+    markers = "".join(
+        f'<circle cx="{x:.1f}" cy="{y:.1f}" r="4.6">'
+        f'<title>{h(company_name or "当前企业")} · {h(item["label"])}：原始得分 {h(item["score_label"])}，归一化 {float(item["normalized"]):.3f}</title>'
+        "</circle>"
+        for x, y, item in data_points
+    )
+    metric_rows = "".join(
+        '<div class="region-radar-metric">'
+        f'<span>{h(item["label"])}</span>'
+        f'<strong>{h(item["score_label"])}</strong>'
+        f'<em>{h(item["value"])} · 归一化 {float(item["normalized"]):.3f}</em>'
+        "</div>"
+        for item in items
+    )
+    average = sum(float(item["normalized"]) for item in items) / len(items) * 100
+    company_label = company_name or "当前企业"
+    return (
+        '<section class="region-radar-card detail-card">'
+        "<style>"
+        ".region-radar-card{background:#F8FAFC;}"
+        ".region-radar-grid polygon{fill:none;stroke:rgba(30,58,95,.18);stroke-width:1;}"
+        ".region-radar-grid text{fill:#64748B;font-size:10px;font-weight:700;}"
+        ".region-radar-axis line{stroke:rgba(30,58,95,.16);stroke-dasharray:4 6;}"
+        ".region-radar-area{fill:#4C6EF5;fill-opacity:.2;stroke:none;}"
+        ".region-radar-line{fill:none;stroke:#3B5BDB;stroke-width:2.8;stroke-linejoin:round;stroke-linecap:round;}"
+        ".region-radar-points circle{fill:#F8FAFC;stroke:#3B5BDB;stroke-width:2.4;}"
+        ".region-radar-labels text{fill:#1E293B;font-size:12px;font-weight:850;}"
+        ".region-radar-center{fill:#475569;font-size:12px;font-weight:800;}"
+        "</style>"
+        '<div class="finance-radar-head region-radar-head">'
+        "<h3>区域国资适配雷达图</h3>"
+        f'<div class="finance-radar-score"><span>{h(company_label)}</span><strong>{average:.1f}%</strong></div>'
+        "</div>"
+        '<div class="finance-radar-wrap region-radar-wrap">'
+        '<svg class="finance-radar-svg region-radar-svg" viewBox="0 0 500 370" role="img" aria-label="区域国资适配四维雷达图">'
+        f'<g class="region-radar-grid">{"".join(grid_polygons)}{"".join(grid_labels)}</g>'
+        f'<g class="region-radar-axis">{"".join(axis_lines)}</g>'
+        f'<polygon class="region-radar-area" points="{data_polygon}" />'
+        f'<polyline class="region-radar-line" points="{data_polygon}{close_point}" />'
+        f'<g class="region-radar-points">{markers}</g>'
+        f'<g class="region-radar-labels">{"".join(labels)}</g>'
+        f'<text class="region-radar-center" x="250" y="184" text-anchor="middle">{h(company_label)}</text>'
+        "</svg>"
+        "</div>"
+        f'<div class="region-radar-metrics">{metric_rows}</div>'
+        "</section>"
+    )
 
 
 def governance_radar_chart_html(rows: list[dict]) -> str:
@@ -1738,6 +1867,48 @@ def inject_css() -> None:
           color: var(--muted);
           font-size: 11px;
           font-style: normal;
+        }
+        .region-radar-metrics {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 10px 12px;
+          margin-top: auto;
+        }
+        .region-radar-metric {
+          border: 1px solid rgba(59, 91, 219, 0.14);
+          background: rgba(255, 255, 255, 0.72);
+          border-radius: 10px;
+          padding: 10px 12px;
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto;
+          gap: 3px 10px;
+          align-items: baseline;
+        }
+        .region-radar-metric span {
+          color: #1e293b;
+          font-size: 12px;
+          font-weight: 850;
+        }
+        .region-radar-metric strong {
+          color: #3B5BDB;
+          font-size: 12px;
+          text-align: right;
+        }
+        .region-radar-metric em {
+          grid-column: 1 / -1;
+          color: #64748b;
+          font-size: 11px;
+          font-style: normal;
+        }
+        .region-heatmap-card {
+          background: rgba(248, 250, 252, 0.92);
+          border-color: rgba(59, 91, 219, 0.14);
+        }
+        .region-heatmap-link {
+          margin-top: 12px;
+          color: #3B5BDB;
+          font-size: 12px;
+          font-weight: 800;
         }
         .governance-trend-card,
         .governance-highlights-card {
@@ -3240,7 +3411,8 @@ def inject_css() -> None:
           .finance-radar-score {
             text-align: left;
           }
-          .finance-radar-metrics {
+          .finance-radar-metrics,
+          .region-radar-metrics {
             grid-template-columns: 1fr;
           }
           .governance-card-head {
@@ -4121,6 +4293,7 @@ def render_module_page() -> None:
     try:
         company = cached_company_detail(code)
         detail = module_detail(company, module_key)
+        detail["company_short_name"] = short_name(company)
     except Exception as exc:
         st.error(f"读取模块详情失败：{exc}")
         return
@@ -4156,6 +4329,8 @@ def render_module_page() -> None:
         render_finance_module_detail(detail)
     elif module_key == "equity":
         render_governance_module_detail(detail)
+    elif module_key == "region":
+        render_region_module_detail(detail)
     elif module_key == "mixed":
         st.markdown(mixed_module_detail_html(detail), unsafe_allow_html=True)
         if not detail.get("mixedDegreeProfile"):
@@ -4195,6 +4370,46 @@ def render_finance_module_detail(detail: dict) -> None:
         st.markdown("</div>", unsafe_allow_html=True)
     with right:
         st.markdown(finance_radar_chart_html(detail["rows"]), unsafe_allow_html=True)
+
+
+def region_heatmap_card_html(artifact_path: Path | None = None) -> str:
+    path = artifact_path or REGION_HEATMAP_HTML
+    if path.exists():
+        return (
+            '<section class="detail-card region-heatmap-card">'
+            '<div class="governance-card-head">'
+            "<h3>各省份产业匹配度得分热力图</h3>"
+            '<span class="governance-source">pyecharts 交互地图</span>'
+            "</div>"
+            '<div class="subline">基于区域国资适配评分数据（得分越高颜色越红）</div>'
+            f'<div class="region-heatmap-link">交互式 HTML：{h(path.name)}</div>'
+            "</section>"
+        )
+    return (
+        '<section class="detail-card region-heatmap-card region-heatmap-empty">'
+        "<h3>各省份产业匹配度得分热力图</h3>"
+        '<div class="subline">省份产业匹配度热力图尚未生成。运行 '
+        '<code>python scripts/generate_region_heatmap.py</code> 后将在此处显示交互地图。</div>'
+        "</section>"
+    )
+
+
+def render_region_module_detail(detail: dict) -> None:
+    company_name = str(detail.get("company_short_name") or "")
+    top_left, top_right = st.columns([1, 1], gap="large")
+    with top_left:
+        st.markdown('<div class="detail-card"><h3>指标证据表</h3>', unsafe_allow_html=True)
+        st.dataframe(detail["rows"], width="stretch", hide_index=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+    with top_right:
+        st.markdown(region_radar_chart_html(detail["rows"], company_name), unsafe_allow_html=True)
+
+    st.markdown(region_heatmap_card_html(), unsafe_allow_html=True)
+    if REGION_HEATMAP_HTML.exists():
+        try:
+            components.html(REGION_HEATMAP_HTML.read_text(encoding="utf-8"), height=640, scrolling=True)
+        except OSError:
+            st.warning("热力图 HTML 读取失败，请重新生成热力图文件。")
 
 
 def render_governance_module_detail(detail: dict) -> None:

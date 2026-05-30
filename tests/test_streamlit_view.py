@@ -236,6 +236,46 @@ def test_finance_radar_chart_html_keeps_missing_metrics_visible():
     assert "无数据" in html
 
 
+def test_region_radar_items_use_prompt_normalization():
+    detail = module_detail(sample_company(), "region")
+    items = streamlit_app.region_radar_items(detail["rows"], "甲能源")
+
+    by_label = {item["label"]: item for item in items}
+
+    assert by_label["财政自给率"]["normalized"] == pytest.approx(1.0)
+    assert by_label["债务率"]["normalized"] == pytest.approx(0.0)
+    assert by_label["产业匹配度"]["normalized"] == pytest.approx(0.0)
+    assert by_label["活跃度"]["normalized"] == pytest.approx(0.0)
+
+
+def test_region_radar_chart_html_uses_four_dimension_contract():
+    rows = [
+        {"指标": "财政自给率", "数值": "69.1%", "得分": "5.5 / 8.0"},
+        {"指标": "地方政府债务率", "数值": "22.5%", "得分": "4.9 / 6.0"},
+        {"指标": "产业匹配度", "数值": "省级重点产业", "得分": "4.0 / 4.0"},
+        {"指标": "区域混改活跃度", "数值": "49 家", "得分": "2.0 / 2.0"},
+    ]
+
+    html = streamlit_app.region_radar_chart_html(rows, "白云机场")
+
+    assert "region-radar-card" in html
+    assert 'role="img"' in html
+    assert "区域国资适配雷达图" in html
+    assert "白云机场" in html
+    assert "财政自给率" in html
+    assert "债务率" in html
+    assert "产业匹配度" in html
+    assert "活跃度" in html
+    assert "#4C6EF5" in html
+    assert "#3B5BDB" in html
+    assert "#F8FAFC" in html
+
+
+def test_region_module_has_dedicated_renderer():
+    assert hasattr(streamlit_app, "render_region_module_detail")
+    assert hasattr(streamlit_app, "region_heatmap_card_html")
+
+
 def test_mixed_module_detail_exposes_profile_and_page_html():
     detail = module_detail(sample_company(), "mixed")
     html = streamlit_app.mixed_module_detail_html(detail)
